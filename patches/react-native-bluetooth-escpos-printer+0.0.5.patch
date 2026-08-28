@@ -1,0 +1,117 @@
+diff --git a/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle b/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle
+index d86e4f5..736f60d 100644
+--- a/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle
++++ b/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle
+@@ -1,31 +1,12 @@
+-buildscript {
+-    repositories {
+-        jcenter { url "http://jcenter.bintray.com/" }
+-        maven {url "http://repo.spring.io/plugins-release/"}
+-        mavenCentral()
+-        maven {
+-            // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+-            url "$rootDir/../node_modules/react-native/android"
+-        }
+-        maven {
+-            url 'https://maven.google.com'
+-        }
+-    }
+-
+-    dependencies {
+-        classpath 'com.android.tools.build:gradle:3.1.4'
+-    }
+-}
+-
+ apply plugin: 'com.android.library'
+ 
+ android {
+-    compileSdkVersion 27
+-    buildToolsVersion "27.0.3"
++    namespace "cn.jystudio.bluetooth"
++    compileSdkVersion 34
+ 
+     defaultConfig {
+-        minSdkVersion 16
+-        targetSdkVersion 24
++        minSdkVersion 21
++        targetSdkVersion 34
+         versionCode 1
+         versionName "1.0"
+     }
+@@ -40,21 +21,17 @@ android {
+ }
+ 
+ repositories {
+-    jcenter { url "http://jcenter.bintray.com/" }
+-    maven {url "http://repo.spring.io/plugins-release/"}
++    google()
+     mavenCentral()
+     maven {
+         // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+         url "$rootDir/../node_modules/react-native/android"
+     }
+-    maven {
+-        url 'https://maven.google.com'
+-    }
+ }
+ 
+ dependencies {
+-    compile fileTree(dir: 'libs', include: ['*.jar'])
++    implementation fileTree(dir: 'libs', include: ['*.jar'])
+     implementation 'com.facebook.react:react-native:+'  // From node_modules
+-    implementation group: 'com.android.support', name: 'support-v4', version: '27.0.0'
++    implementation 'androidx.core:core:1.12.0'
+     implementation "com.google.zxing:core:3.3.0"
+ }
+diff --git a/node_modules/react-native-bluetooth-escpos-printer/android/src/main/AndroidManifest.xml b/node_modules/react-native-bluetooth-escpos-printer/android/src/main/AndroidManifest.xml
+index b646487..b113b6b 100644
+--- a/node_modules/react-native-bluetooth-escpos-printer/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-bluetooth-escpos-printer/android/src/main/AndroidManifest.xml
+@@ -1,6 +1,5 @@
+ 
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-          package="cn.jystudio.bluetooth">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+     <uses-permission android:name="android.permission.BLUETOOTH" />
+     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+diff --git a/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/RNBluetoothManagerModule.java b/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/RNBluetoothManagerModule.java
+index dd5d33e..bcdf209 100644
+--- a/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/RNBluetoothManagerModule.java
++++ b/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/RNBluetoothManagerModule.java
+@@ -10,8 +10,8 @@ import android.content.Intent;
+ import android.content.IntentFilter;
+ import android.content.pm.PackageManager;
+ import android.os.Bundle;
+-import android.support.v4.app.ActivityCompat;
+-import android.support.v4.content.ContextCompat;
++import androidx.core.app.ActivityCompat;
++import androidx.core.content.ContextCompat;
+ import android.util.Log;
+ import android.widget.Toast;
+ import com.facebook.react.bridge.*;
+diff --git a/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/escpos/RNBluetoothEscposPrinterModule.java b/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/escpos/RNBluetoothEscposPrinterModule.java
+index 3fa7409..c73b552 100644
+--- a/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/escpos/RNBluetoothEscposPrinterModule.java
++++ b/node_modules/react-native-bluetooth-escpos-printer/android/src/main/java/cn/jystudio/bluetooth/escpos/RNBluetoothEscposPrinterModule.java
+@@ -352,6 +352,20 @@ public class RNBluetoothEscposPrinterModule extends ReactContextBaseJavaModule
+     }
+ 
+ 
++    // Writes base64-decoded bytes straight to the connected socket, no ESC/POS
++    // framing added. Used for protocols this library has no native module for
++    // (CPCL, ZPL) — the JS side builds the raw command bytes itself (see
++    // src/utils/labelCommands.ts) and this is just the write() passthrough.
++    @ReactMethod
++    public void printRawData(String base64encodeStr, final Promise promise) {
++        byte[] bytes = Base64.decode(base64encodeStr, Base64.DEFAULT);
++        if (sendDataByte(bytes)) {
++            promise.resolve(null);
++        } else {
++            promise.reject("COMMAND_SEND_ERROR");
++        }
++    }
++
+     @ReactMethod
+     public void selfTest(@Nullable Callback cb) {
+         boolean result = sendDataByte(PrinterCommand.POS_Set_PrtSelfTest());
