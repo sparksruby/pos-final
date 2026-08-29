@@ -82,6 +82,12 @@ CREATE TABLE IF NOT EXISTS products (
   is_active          INTEGER NOT NULL DEFAULT 1,
   sort_order         INTEGER NOT NULL DEFAULT 0,
   server_id          TEXT,
+  -- 1 means "deleted on this device, and the server has not been told yet".
+  -- The row stays behind as a tombstone rather than going, because a real
+  -- DELETE leaves nothing to push and the next pull simply hands the product
+  -- back — see productsRepo.deleteProduct and syncRepo's pending_sync = 0
+  -- guards.
+  pending_sync       INTEGER NOT NULL DEFAULT 0,
   created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -448,6 +454,12 @@ const migrate = async (db: SQLite.SQLiteDatabase) => {
   await ensureColumn(db, "branches", "server_id", "TEXT");
   await ensureColumn(db, "categories", "server_id", "TEXT");
   await ensureColumn(db, "products", "server_id", "TEXT");
+  // Nine queries in syncRepo read or write this and nothing ever created it,
+  // so every device — fresh install or upgrade — failed the moment sync
+  // touched it: "no such column: pending_sync", which reached the shopkeeper
+  // as CONNECT_FAILED. Existing rows default to 0, which is correct — a
+  // product sitting on the device has not been deleted.
+  await ensureColumn(db, "products", "pending_sync", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "sales", "sync_uuid", "TEXT");
   await ensureColumn(db, "sales", "synced_at", "TEXT");
   await ensureColumn(db, "stock_movements", "sync_uuid", "TEXT");

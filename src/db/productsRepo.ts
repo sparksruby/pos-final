@@ -320,11 +320,33 @@ export const productsRepo = {
     });
   },
 
+  /**
+   * Takes a product off the till.
+   *
+   * A product the server has never seen is simply deleted. One it has seen
+   * cannot be: a DELETE leaves nothing to tell the server about, and the very
+   * next pull hands the product straight back — the shopkeeper deletes it,
+   * watches it reappear, and deletes it again. So the row stays as a
+   * tombstone (inactive, and flagged for the server), which is what
+   * syncRepo's push reads and what its `pending_sync = 0` guards keep a pull
+   * from overwriting. Its shelf quantity goes either way, so nothing counts
+   * stock the shop no longer sells.
+   */
   deleteProduct: async (id: number) => {
     const db = await getDb();
     await db.withTransactionAsync(async () => {
       await db.runAsync("DELETE FROM branch_stock WHERE product_id = ?", [id]);
-      await db.runAsync("DELETE FROM products WHERE id = ?", [id]);
+
+      const row = await db.getFirstAsync<{ server_id: string | null }>(
+        "SELECT server_id FROM products WHERE id = ?", [id]
+      );
+      if (row?.server_id) {
+        await db.runAsync(
+          "UPDATE products SET is_active = 0, pending_sync = 1 WHERE id = ?", [id]
+        );
+      } else {
+        await db.runAsync("DELETE FROM products WHERE id = ?", [id]);
+      }
     });
   },
 };
