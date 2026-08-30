@@ -1,3 +1,4 @@
+import type * as SQLite from "expo-sqlite";
 import * as Crypto from "expo-crypto";
 import { getDb } from "./database";
 import type { Category, Product } from "../types";
@@ -93,6 +94,92 @@ const loadCategories = async (activeOnly: boolean, branchId: number): Promise<Ca
   return categoryRows.map(c =>
     toCategory(c, productRows.filter(p => p.category_id === c.id).map(toProduct))
   );
+};
+
+/**
+ * A barcode and an SKU for a product that arrived without them.
+ *
+ * Only for the things a shop packs or makes itself, which have nothing
+ * printed to scan. Whatever the shopkeeper typed always wins — a real
+ * manufacturer's barcode is never overwritten.
+ *
+ * The till number sits in the middle of every generated code, and it is not
+ * decoration. Two offline devices each count alone and cannot see each
+ * other until they sync; without the till number both would hand 000041 to
+ * two different products, both labels would be printed and stuck on, and
+ * the shop would find out weeks later when one bag rings up as another.
+ * With it, till 1 prints 2100041 and till 2 prints 2200041 and they can
+ * never meet. Shops with one device never think about it.
+ *
+ * Must be called inside the caller's transaction: the counter is read,
+ * used and written in one go, so two products added in the same second on
+ * this device cannot both read the same number.
+ */
+const generateCodes = async (
+  db: SQLite.SQLiteDatabase,
+  typedBarcode: string | undefined,
+  typedSku: string | undefined,
+): Promise<{ barcode: string | null; sku: string | null }> => {
+  const wantsBarcode = !typedBarcode?.trim();
+  const wantsSku     = !typedSku?.trim();
+
+  const settings = await db.getFirstAsync<{
+    auto_barcode_enabled: number; auto_barcode_prefix: string; auto_barcode_next: number;
+    auto_sku_enabled: number; auto_sku_prefix: string; auto_sku_next: number;
+    auto_code_till: number;
+  }>(`SELECT auto_barcode_enabled, auto_barcode_prefix, auto_barcode_next,
+             auto_sku_enabled, auto_sku_prefix, auto_sku_next, auto_code_till
+      FROM shop_settings WHERE id = 1`);
+
+  const result = {
+    barcode: typedBarcode?.trim() || null,
+    sku:     typedSku?.trim() || null,
+  };
+  if (!settings) return result;
+
+  const till = String(settings.auto_code_till ?? 1);
+  const pad = (n: number, width: number) => String(n).padStart(width, "0");
+
+  // Walks the counter forward past anything already using that code. It
+  // matters on the day a shop turns this on with products already in the
+  // catalogue: someone typed 2100001 by hand once, and handing the same
+  // number to a second product makes the till ring up whichever row the
+  // database happens to return first.
+  const findFree = async (
+    column: "barcode" | "sku", format: (n: number) => string, from: number
+  ): Promise<{ code: string; next: number }> => {
+    let n = Math.max(1, from);
+    for (let tries = 0; tries < 10000; tries++, n++) {
+      const code = format(n);
+      const clash = await db.getFirstAsync<{ id: number }>(
+        `SELECT id FROM products WHERE ${column} = ?`, [code]
+      );
+      if (!clash) return { code, next: n + 1 };
+    }
+    throw new Error("AUTO_CODE_EXHAUSTED");
+  };
+
+  if (wantsBarcode && settings.auto_barcode_enabled) {
+    const { code, next } = await findFree(
+      "barcode",
+      n => `${settings.auto_barcode_prefix}${till}${pad(n, 5)}`,
+      settings.auto_barcode_next
+    );
+    result.barcode = code;
+    await db.runAsync("UPDATE shop_settings SET auto_barcode_next = ? WHERE id = 1", [next]);
+  }
+
+  if (wantsSku && settings.auto_sku_enabled) {
+    const { code, next } = await findFree(
+      "sku",
+      n => `${settings.auto_sku_prefix}-${till}-${pad(n, 5)}`,
+      settings.auto_sku_next
+    );
+    result.sku = code;
+    await db.runAsync("UPDATE shop_settings SET auto_sku_next = ? WHERE id = 1", [next]);
+  }
+
+  return result;
 };
 
 export const productsRepo = {
@@ -220,10 +307,11 @@ export const productsRepo = {
     const db = await getDb();
     let productId = 0;
     await db.withTransactionAsync(async () => {
+      const codes = await generateCodes(db, body.barcode, body.sku);
       const { lastInsertRowId } = await db.runAsync(
         `INSERT INTO products (category_id, name, sku, barcode, price, wholesale_price, cost_price, unit, image_uri, stock_qty, low_stock_threshold, expiry_date, label_text, is_active, sort_order, sync_uuid)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 5, ?, ?, 1, ?, ?)`,
-        [body.categoryId, body.name, body.sku ?? null, body.barcode ?? null, body.price,
+        [body.categoryId, body.name, codes.sku, codes.barcode, body.price,
          body.wholesalePrice ?? null, body.costPrice, body.unit, body.imageUri ?? null,
          body.expiryDate ?? null, body.labelText ?? null, body.sortOrder, Crypto.randomUUID()]
       );

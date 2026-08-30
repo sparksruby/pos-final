@@ -335,6 +335,26 @@ export interface ShopSettings {
   loyaltyRedeemRate: number;
   /** Default vertical label text (e.g. shop name) — used when a product has no labelText of its own. */
   labelDefaultText?: string;
+
+  /**
+   * Automatic barcode/SKU numbering for products the shop packs itself.
+   * Off by default — a shop stocking only branded goods should never find
+   * codes it did not ask for.
+   */
+  autoBarcodeEnabled: boolean;
+  /** Digits every generated barcode starts with. '2' is set aside worldwide for a shop's own use. */
+  autoBarcodePrefix:  string;
+  autoBarcodeNext:    number;
+  autoSkuEnabled:     boolean;
+  autoSkuPrefix:      string;
+  autoSkuNext:        number;
+  /**
+   * Which till this device is, when a shop has more than one. It sits in the
+   * middle of every generated code and is what stops two offline devices —
+   * which cannot see each other's counters until they sync — handing the
+   * same barcode to two different products.
+   */
+  autoCodeTill:       number;
 }
 
 export interface UpdateShopSettingsRequest {
@@ -349,4 +369,24 @@ export interface UpdateShopSettingsRequest {
   loyaltyEarnRate:   number;
   loyaltyRedeemRate: number;
   labelDefaultText?: string;
+
+  /**
+   * Automatic barcode/SKU numbering for products the shop packs itself.
+   * Off by default — a shop stocking only branded goods should never find
+   * codes it did not ask for.
+   */
+  autoBarcodeEnabled: boolean;
+  /** Digits every generated barcode starts with. '2' is set aside worldwide for a shop's own use. */
+  autoBarcodePrefix:  string;
+  autoBarcodeNext:    number;
+  autoSkuEnabled:     boolean;
+  autoSkuPrefix:      string;
+  autoSkuNext:        number;
+  /**
+   * Which till this device is, when a shop has more than one. It sits in the
+   * middle of every generated code and is what stops two offline devices —
+   * which cannot see each other's counters until they sync — handing the
+   * same barcode to two different products.
+   */
+  autoCodeTill:       number;
 }

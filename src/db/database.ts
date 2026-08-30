@@ -276,7 +276,31 @@ CREATE TABLE IF NOT EXISTS shop_settings (
   receipt_footer TEXT,
   loyalty_enabled    INTEGER NOT NULL DEFAULT 0,
   loyalty_earn_rate   REAL NOT NULL DEFAULT 1,
-  loyalty_redeem_rate REAL NOT NULL DEFAULT 0.01
+  loyalty_redeem_rate REAL NOT NULL DEFAULT 0.01,
+
+  -- Automatic barcode/SKU numbering for products the shop packs itself,
+  -- which have nothing printed to scan. Off by default: a shop stocking
+  -- only branded goods should never find codes it did not ask for.
+  --
+  -- The barcode prefix defaults to '2' because that range is set aside
+  -- worldwide for a shop's own internal use, so a generated code cannot
+  -- collide with a real manufacturer's barcode on something else on the
+  -- same shelf -- which would ring up the wrong product at the till, and
+  -- only on the day both happened to be in stock.
+  auto_barcode_enabled INTEGER NOT NULL DEFAULT 0,
+  auto_barcode_prefix  TEXT NOT NULL DEFAULT '2',
+  auto_barcode_next    INTEGER NOT NULL DEFAULT 1,
+  auto_sku_enabled     INTEGER NOT NULL DEFAULT 0,
+  auto_sku_prefix      TEXT NOT NULL DEFAULT 'SKU',
+  auto_sku_next        INTEGER NOT NULL DEFAULT 1,
+
+  -- Which till this is, when a shop has more than one. It goes into the
+  -- middle of every generated code, and it is the only thing keeping two
+  -- offline devices from handing the same barcode to two different
+  -- products: each counts alone, neither can see the other until they
+  -- sync, and by then both labels are printed and stuck on. Shops with a
+  -- single device never touch this.
+  auto_code_till       INTEGER NOT NULL DEFAULT 1
 );
 
 -- At most one row (id = 1). Presence of server_url + device_api_key means
@@ -460,6 +484,14 @@ const migrate = async (db: SQLite.SQLiteDatabase) => {
   // as CONNECT_FAILED. Existing rows default to 0, which is correct — a
   // product sitting on the device has not been deleted.
   await ensureColumn(db, "products", "pending_sync", "INTEGER NOT NULL DEFAULT 0");
+
+  await ensureColumn(db, "shop_settings", "auto_barcode_enabled", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "shop_settings", "auto_barcode_prefix", "TEXT NOT NULL DEFAULT '2'");
+  await ensureColumn(db, "shop_settings", "auto_barcode_next", "INTEGER NOT NULL DEFAULT 1");
+  await ensureColumn(db, "shop_settings", "auto_sku_enabled", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "shop_settings", "auto_sku_prefix", "TEXT NOT NULL DEFAULT 'SKU'");
+  await ensureColumn(db, "shop_settings", "auto_sku_next", "INTEGER NOT NULL DEFAULT 1");
+  await ensureColumn(db, "shop_settings", "auto_code_till", "INTEGER NOT NULL DEFAULT 1");
   await ensureColumn(db, "sales", "sync_uuid", "TEXT");
   await ensureColumn(db, "sales", "synced_at", "TEXT");
   await ensureColumn(db, "stock_movements", "sync_uuid", "TEXT");
