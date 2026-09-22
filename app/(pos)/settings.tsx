@@ -158,6 +158,18 @@ export default function SettingsScreen() {
       tint: C.info,
     },
     {
+      icon: "trending-up-outline",
+      label: t("analytics.title"),
+      route: "/(pos)/analytics",
+      tint: C.accent,
+    },
+    {
+      icon: "calculator-outline",
+      label: t("pl.title"),
+      route: "/(pos)/profit-loss",
+      tint: C.warning,
+    },
+    {
       icon: "layers-outline",
       label: t("inventory.title"),
       route: "/(pos)/inventory",

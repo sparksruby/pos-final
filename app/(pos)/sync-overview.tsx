@@ -195,6 +195,7 @@ export default function SyncOverviewScreen() {
   // and how many items — so a day's trading can be read at a glance instead
   // of scrolled past.
   const [openSaleId, setOpenSaleId] = useState<number | null>(null);
+  const [openProductId, setOpenProductId] = useState<number | null>(null);
 
   const activeTotal =
     tab === "sales"
@@ -215,6 +216,51 @@ export default function SyncOverviewScreen() {
     branchFilter == null
       ? t("reports.allBranches")
       : (branchFilterName ?? t("reports.allBranches"));
+
+  // One row per branch, tappable to drill into it. Shown on whichever tab
+  // is open, with that tab's own figure on the right — the totals are the
+  // point of "All Branches", and the rows behind them are what you go and
+  // look at afterwards.
+  const BranchSummary = ({
+    rows,
+    kind,
+  }: {
+    rows: typeof branchSummaries;
+    kind: "sales" | "movements" | "expenses";
+  }) => (
+    <>
+      {rows.map((b) => (
+        <TouchableOpacity
+          key={b.name}
+          style={s.card}
+          activeOpacity={0.7}
+          onPress={() => b.branchId != null && setBranchFilter(b.branchId)}
+        >
+          <View style={s.cardHeaderRow}>
+            <Text style={s.branchTag}>{b.name}</Text>
+            <Ionicons name="chevron-forward" size={15} color={C.muted} />
+          </View>
+          <View style={s.cardFooterRow}>
+            <Text style={s.metaText}>
+              {kind === "sales"
+                ? `${t("syncOverview.saleCount", { count: b.salesCount })}  ·  ${t("syncOverview.itemCount", { count: b.itemCount })}`
+                : kind === "movements"
+                  ? t("syncOverview.movementCount", { count: b.movementCount })
+                  : t("syncOverview.saleCount", { count: b.salesCount })}
+            </Text>
+            <Text style={s.totalText}>
+              {kind === "sales"
+                ? `$${b.salesTotal.toLocaleString()}`
+                : kind === "movements"
+                  ? String(b.movementCount)
+                  : `$${b.expenseTotal.toLocaleString()}`}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+      <Text style={s.summaryHint}>{t("syncOverview.tapBranch")}</Text>
+    </>
+  );
 
   const load = async () => {
     if (!currentBranchId) return;
@@ -462,40 +508,7 @@ export default function SyncOverviewScreen() {
           ) : tab === "sales" ? (
             <ScrollView contentContainerStyle={s.scroll}>
               {showBranchSummary ? (
-                <>
-                  {branchSummaries.map((b) => (
-                    <TouchableOpacity
-                      key={b.name}
-                      style={s.card}
-                      activeOpacity={0.7}
-                      onPress={() =>
-                        b.branchId != null && setBranchFilter(b.branchId)
-                      }
-                    >
-                      <View style={s.cardHeaderRow}>
-                        <Text style={s.branchTag}>{b.name}</Text>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={15}
-                          color={C.muted}
-                        />
-                      </View>
-                      <View style={s.cardFooterRow}>
-                        <Text style={s.metaText}>
-                          {t("syncOverview.saleCount", { count: b.salesCount })}
-                          {"  ·  "}
-                          {t("syncOverview.itemCount", { count: b.itemCount })}
-                        </Text>
-                        <Text style={s.totalText}>
-                          ${b.salesTotal.toLocaleString()}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                  <Text style={s.summaryHint}>
-                    {t("syncOverview.tapBranch")}
-                  </Text>
-                </>
+                <BranchSummary rows={branchSummaries} kind="sales" />
               ) : (
                 <>
                   {filteredSales.length === 0 && (
@@ -559,37 +572,41 @@ export default function SyncOverviewScreen() {
             </ScrollView>
           ) : tab === "movements" ? (
             <ScrollView contentContainerStyle={s.scroll}>
-              {filteredMovements.length === 0 && (
+              {showBranchSummary && (
+                <BranchSummary rows={branchSummaries} kind="movements" />
+              )}
+              {!showBranchSummary && filteredMovements.length === 0 && (
                 <Text style={s.emptyText}>{t("syncOverview.noMovements")}</Text>
               )}
-              {visibleMovements.map((m) => (
-                <View key={m.id} style={s.card}>
-                  <View style={s.cardHeaderRow}>
-                    <Text style={s.branchTag}>{m.branchName ?? "—"}</Text>
-                    <Text style={s.dateText}>
-                      {new Date(m.createdAt).toLocaleString()}
+              {!showBranchSummary &&
+                visibleMovements.map((m) => (
+                  <View key={m.id} style={s.card}>
+                    <View style={s.cardHeaderRow}>
+                      <Text style={s.branchTag}>{m.branchName ?? "—"}</Text>
+                      <Text style={s.dateText}>
+                        {new Date(m.createdAt).toLocaleString()}
+                      </Text>
+                    </View>
+                    <Text style={s.itemLine} numberOfLines={1}>
+                      {m.productName}
                     </Text>
+                    <View style={s.cardFooterRow}>
+                      <Text style={s.metaText}>
+                        {m.reason}
+                        {m.actorName ? ` · ${m.actorName}` : ""}
+                      </Text>
+                      <Text
+                        style={[
+                          s.totalText,
+                          m.changeQty < 0 ? s.negative : s.positive,
+                        ]}
+                      >
+                        {m.changeQty > 0 ? `+${m.changeQty}` : m.changeQty}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={s.itemLine} numberOfLines={1}>
-                    {m.productName}
-                  </Text>
-                  <View style={s.cardFooterRow}>
-                    <Text style={s.metaText}>
-                      {m.reason}
-                      {m.actorName ? ` · ${m.actorName}` : ""}
-                    </Text>
-                    <Text
-                      style={[
-                        s.totalText,
-                        m.changeQty < 0 ? s.negative : s.positive,
-                      ]}
-                    >
-                      {m.changeQty > 0 ? `+${m.changeQty}` : m.changeQty}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-              {activeTotal > visibleCount && (
+                ))}
+              {!showBranchSummary && activeTotal > visibleCount && (
                 <TouchableOpacity
                   style={s.loadMoreBtn}
                   onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
@@ -605,40 +622,79 @@ export default function SyncOverviewScreen() {
               {filteredProductRows.length === 0 && (
                 <Text style={s.emptyText}>{t("syncOverview.noProducts")}</Text>
               )}
-              {visibleProductRows.map((p) => (
-                <View key={p.id} style={s.card}>
-                  <View style={s.cardHeaderRow}>
-                    <Text
-                      style={[s.itemLine, { flex: 1, marginRight: 8 }]}
-                      numberOfLines={1}
-                    >
-                      {p.name}
-                    </Text>
-                    <Text style={s.totalText}>
-                      ${p.price.toLocaleString()} / {p.unit}
-                    </Text>
-                  </View>
-                  <Text style={s.metaText}>{p.categoryName}</Text>
-                  <View style={s.branchStockGrid}>
-                    {p.branchStocks.map((bs) => (
-                      <View key={bs.branchId} style={s.branchStockChip}>
-                        <Text style={s.branchStockName} numberOfLines={1}>
-                          {bs.branchName}
-                        </Text>
+              {visibleProductRows.map((p) => {
+                // Collapsed, a product is its name, its price and what the
+                // shop holds altogether. Open, it breaks down by branch.
+                // Printing a chip per branch on every row turned a 200-line
+                // catalogue across three branches into 600 numbers nobody
+                // reads.
+                const open = openProductId === p.id;
+                const totalStock = p.branchStocks.reduce(
+                  (n, bs) => n + bs.stockQty,
+                  0,
+                );
+                const emptyBranches = p.branchStocks.filter(
+                  (bs) => bs.stockQty <= 0,
+                ).length;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={s.card}
+                    activeOpacity={0.7}
+                    onPress={() => setOpenProductId(open ? null : p.id)}
+                  >
+                    <View style={s.cardHeaderRow}>
+                      <Text
+                        style={[s.itemLine, { flex: 1, marginRight: 8 }]}
+                        numberOfLines={1}
+                      >
+                        {p.name}
+                      </Text>
+                      <Text style={s.totalText}>
+                        ${p.price.toLocaleString()} / {p.unit}
+                      </Text>
+                    </View>
+                    <View style={s.cardFooterRow}>
+                      <Text style={s.metaText}>
+                        {p.categoryName}
+                        {!open && emptyBranches > 0
+                          ? `  ·  ${t("syncOverview.emptyAt", { count: emptyBranches })}`
+                          : ""}
+                      </Text>
+                      {!open && (
                         <Text
-                          style={[
-                            s.branchStockQty,
-                            bs.stockQty <= 0 && s.negative,
-                          ]}
+                          style={[s.totalText, totalStock <= 0 && s.negative]}
                         >
-                          {bs.stockQty}
+                          {t("syncOverview.totalStock", {
+                            count: totalStock,
+                            unit: p.unit,
+                          })}
                         </Text>
+                      )}
+                    </View>
+                    {open && (
+                      <View style={s.branchStockGrid}>
+                        {p.branchStocks.map((bs) => (
+                          <View key={bs.branchId} style={s.branchStockChip}>
+                            <Text style={s.branchStockName} numberOfLines={1}>
+                              {bs.branchName}
+                            </Text>
+                            <Text
+                              style={[
+                                s.branchStockQty,
+                                bs.stockQty <= 0 && s.negative,
+                              ]}
+                            >
+                              {bs.stockQty}
+                            </Text>
+                          </View>
+                        ))}
                       </View>
-                    ))}
-                  </View>
-                </View>
-              ))}
-              {activeTotal > visibleCount && (
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+              {!showBranchSummary && activeTotal > visibleCount && (
                 <TouchableOpacity
                   style={s.loadMoreBtn}
                   onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
@@ -651,29 +707,33 @@ export default function SyncOverviewScreen() {
             </ScrollView>
           ) : (
             <ScrollView contentContainerStyle={s.scroll}>
-              {filteredExpenses.length === 0 && (
+              {showBranchSummary && (
+                <BranchSummary rows={branchSummaries} kind="expenses" />
+              )}
+              {!showBranchSummary && filteredExpenses.length === 0 && (
                 <Text style={s.emptyText}>{t("expenses.empty")}</Text>
               )}
-              {visibleExpenses.map((e) => (
-                <View key={e.id} style={s.card}>
-                  <View style={s.cardHeaderRow}>
-                    <Text style={s.branchTag}>{e.branchName ?? "—"}</Text>
-                    <Text style={s.dateText}>
-                      {new Date(e.createdAt).toLocaleString()}
+              {!showBranchSummary &&
+                visibleExpenses.map((e) => (
+                  <View key={e.id} style={s.card}>
+                    <View style={s.cardHeaderRow}>
+                      <Text style={s.branchTag}>{e.branchName ?? "—"}</Text>
+                      <Text style={s.dateText}>
+                        {new Date(e.createdAt).toLocaleString()}
+                      </Text>
+                    </View>
+                    <Text style={s.itemLine} numberOfLines={1}>
+                      {e.category}
                     </Text>
+                    <View style={s.cardFooterRow}>
+                      <Text style={s.metaText}>{e.actorName ?? ""}</Text>
+                      <Text style={s.totalText}>
+                        ${e.amount.toLocaleString()}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={s.itemLine} numberOfLines={1}>
-                    {e.category}
-                  </Text>
-                  <View style={s.cardFooterRow}>
-                    <Text style={s.metaText}>{e.actorName ?? ""}</Text>
-                    <Text style={s.totalText}>
-                      ${e.amount.toLocaleString()}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-              {activeTotal > visibleCount && (
+                ))}
+              {!showBranchSummary && activeTotal > visibleCount && (
                 <TouchableOpacity
                   style={s.loadMoreBtn}
                   onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}

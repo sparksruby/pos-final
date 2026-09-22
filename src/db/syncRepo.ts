@@ -871,8 +871,15 @@ export const syncRepo = {
     // The bound branch's row is the one that speaks for this device; any
     // other branch's row is the fallback for the case where the bound
     // branch somehow has none.
+    //
+    // Matched on `id`, not `server_id`: bound_branch_id holds the LOCAL
+    // branch id — connect() writes the local row's id into it, and
+    // branchStore/sync-settings both read it that way. Looking it up by
+    // server_id worked only where the two happened to coincide, which on a
+    // single-branch shop they usually do, and quietly fell through to some
+    // other branch's threshold everywhere else.
     const localBranch = await db.getFirstAsync<{ id: number }>(
-      "SELECT id FROM branches WHERE server_id = ?",
+      "SELECT id FROM branches WHERE id = ?",
       [config.boundBranchId],
     );
     const productRows = await db.getAllAsync<{
@@ -1503,6 +1510,17 @@ export const syncRepo = {
     const config = await getConfig();
     if (!config?.adminKey) return [];
 
+    // Exclude this device's own branch. The server's pull hands back every
+    // branch's sales with no filter, including the ones this device pushed
+    // up itself, so they land in the mirror as well as in the local sales
+    // table. Adding the mirror to the local table without this would count
+    // this branch's takings twice — and only on the main-branch device,
+    // which is the one the owner reads.
+    const own = await db.getFirstAsync<{ name: string }>(
+      "SELECT name FROM branches WHERE id = ?",
+      [config.boundBranchId],
+    );
+
     const rows = await db.getAllAsync<{
       id: number;
       branch_name: string | null;
@@ -1520,8 +1538,11 @@ export const syncRepo = {
     }>(
       `SELECT id, branch_name, subtotal, discount, tax_percent, tax_amount, total,
               tendered, change_due, payment_method, cashier_name, customer_name, created_at
-       FROM remote_sales WHERE created_at >= ? AND created_at <= ? ORDER BY created_at DESC`,
-      [fromIso, toIso],
+       FROM remote_sales
+       WHERE created_at >= ? AND created_at <= ?
+         AND (? IS NULL OR branch_name IS NULL OR branch_name <> ?)
+       ORDER BY created_at DESC`,
+      [fromIso, toIso, own?.name ?? null, own?.name ?? ""],
     );
     if (rows.length === 0) return [];
 

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Platform,
   StatusBar,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, router } from "expo-router";
@@ -26,10 +27,14 @@ import {
   periodLabel,
   shiftAnchor,
   isCurrentPeriod,
+  toDateKey,
+  anchorFromDateKey,
   type Period,
 } from "../../src/utils/reportPeriods";
 import { exportReportExcel } from "../../src/utils/exportReportExcel";
 import { syncRepo } from "../../src/db/syncRepo";
+import { analyticsRepo } from "../../src/db/analyticsRepo";
+import { DatePickerModal } from "../../src/components/DatePickerModal";
 import { useAlert } from "@/context/AlertContext";
 import { isDirectSaveAvailable } from "../../src/utils/directSave";
 import { F, R, Shadow, ThemeColors } from "../../src/theme";
@@ -138,6 +143,16 @@ export default function ReportsScreen() {
   // the sales figures above, so it's loaded independently of period/anchor.
   const [stockOnHand, setStockOnHand] = useState<Product[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [branchPickerOpen, setBranchPickerOpen] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [showAllProducts, setShowAllProducts] = useState(false);
+  // An ordinary branch device holds one branch's sales and nobody else's,
+  // so the picker there could only ever offer an empty report. Hidden
+  // rather than offered — see analyticsRepo.canScopeByBranch.
+  const [canScope, setCanScope] = useState(false);
+  useEffect(() => {
+    analyticsRepo.canScopeByBranch().then(setCanScope);
+  }, []);
   const { alert } = useAlert();
   useEffect(() => {
     if (!currentBranchId) return;
@@ -324,68 +339,43 @@ export default function ReportsScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={s.periodRow}>
-        {PERIODS.map((p) => (
-          <TouchableOpacity
-            key={p.key}
-            style={[s.periodBtn, period === p.key && s.periodBtnActive]}
-            onPress={() => changePeriod(p.key)}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[s.periodText, period === p.key && s.periodTextActive]}
-            >
-              {p.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {branches.length > 1 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={s.branchFilterRow}
-        >
-          <TouchableOpacity
-            style={[
-              s.branchFilterBtn,
-              branchFilter === "all" && s.branchFilterBtnActive,
-            ]}
-            onPress={() => setBranchFilter("all")}
-          >
-            <Text
-              style={[
-                s.branchFilterText,
-                branchFilter === "all" && s.branchFilterTextActive,
-              ]}
-            >
-              {t("reports.allBranches")}
-            </Text>
-          </TouchableOpacity>
-          {branches.map((b) => (
+      {/* Three stacked rows of controls pushed the first number below the
+          fold. Period and branch share a line now, and the period label
+          lives in the arrows rather than on a row of its own. */}
+      <View style={s.controlRow}>
+        <View style={s.segment}>
+          {PERIODS.map((p) => (
             <TouchableOpacity
-              key={b.id}
-              style={[
-                s.branchFilterBtn,
-                branchFilter === b.id && s.branchFilterBtnActive,
-              ]}
-              onPress={() => setBranchFilter(b.id)}
+              key={p.key}
+              style={[s.segmentBtn, period === p.key && s.segmentBtnActive]}
+              onPress={() => changePeriod(p.key)}
+              activeOpacity={0.8}
             >
               <Text
-                style={[
-                  s.branchFilterText,
-                  branchFilter === b.id && s.branchFilterTextActive,
-                ]}
-                numberOfLines={1}
+                style={[s.segmentText, period === p.key && s.segmentTextActive]}
               >
-                {b.name}
+                {p.label}
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
-      )}
+        </View>
+
+        {canScope && branches.length > 1 && (
+          <TouchableOpacity
+            style={s.branchBtn}
+            onPress={() => setBranchPickerOpen(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="business-outline" size={14} color={C.textSub} />
+            <Text style={s.branchBtnText} numberOfLines={1}>
+              {branchFilter === "all"
+                ? t("reports.allBranches")
+                : (branches.find((b) => b.id === branchFilter)?.name ?? "")}
+            </Text>
+            <Ionicons name="chevron-down" size={13} color={C.muted} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       <View style={s.navRow}>
         <TouchableOpacity
@@ -394,7 +384,18 @@ export default function ReportsScreen() {
         >
           <Ionicons name="chevron-back" size={18} color={C.text} />
         </TouchableOpacity>
-        <Text style={s.navLabel}>{label}</Text>
+        {/* Tappable for every period, not just Daily: the anchor is a date
+            whatever the period is, so picking any day in March while
+            Monthly is selected opens March. Stepping back to last year's
+            figures took twelve taps on the arrow before this. */}
+        <TouchableOpacity
+          style={s.navLabelBtn}
+          onPress={() => setDatePickerOpen(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={s.navLabel}>{label}</Text>
+          <Ionicons name="calendar-outline" size={15} color={C.muted} />
+        </TouchableOpacity>
         <TouchableOpacity
           style={[s.navBtn, atCurrentPeriod && s.navBtnOff]}
           onPress={() => setAnchor((a) => shiftAnchor(period, a, 1))}
@@ -404,25 +405,110 @@ export default function ReportsScreen() {
         </TouchableOpacity>
       </View>
 
+      <DatePickerModal
+        visible={datePickerOpen}
+        value={toDateKey(anchor)}
+        onClose={() => setDatePickerOpen(false)}
+        onSelect={(key) => {
+          setAnchor(anchorFromDateKey(key));
+          setDatePickerOpen(false);
+        }}
+      />
+
+      <Modal
+        visible={branchPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBranchPickerOpen(false)}
+      >
+        <TouchableOpacity
+          style={s.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setBranchPickerOpen(false)}
+        >
+          <View style={s.pickerSheet}>
+            <Text style={s.pickerTitle}>{t("reports.byBranch")}</Text>
+            <TouchableOpacity
+              style={s.pickerRow}
+              onPress={() => {
+                setBranchFilter("all");
+                setBranchPickerOpen(false);
+              }}
+            >
+              <Text
+                style={[
+                  s.pickerRowText,
+                  branchFilter === "all" && s.pickerRowTextActive,
+                ]}
+              >
+                {t("reports.allBranches")}
+              </Text>
+              {branchFilter === "all" && (
+                <Ionicons name="checkmark" size={16} color={C.accent} />
+              )}
+            </TouchableOpacity>
+            {branches.map((b) => (
+              <TouchableOpacity
+                key={b.id}
+                style={s.pickerRow}
+                onPress={() => {
+                  setBranchFilter(b.id);
+                  setBranchPickerOpen(false);
+                }}
+              >
+                <Text
+                  style={[
+                    s.pickerRowText,
+                    branchFilter === b.id && s.pickerRowTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {b.name}
+                </Text>
+                {branchFilter === b.id && (
+                  <Ionicons name="checkmark" size={16} color={C.accent} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {isLoading ? (
         <ActivityIndicator color={C.accent} style={{ marginTop: 40 }} />
       ) : sales.length === 0 ? (
         <Text style={s.emptyText}>{t("salesHistory.noSales")}</Text>
       ) : (
         <ScrollView contentContainerStyle={s.scroll}>
+          {/* One figure leads, the rest support it. Five equal cards made
+              the reader decide which of them mattered. */}
+          <View style={s.hero}>
+            <Text style={s.heroLabel}>{t("reports.revenue")}</Text>
+            <Text
+              style={s.heroValue}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
+              {currency}
+              {report.netRevenue.toLocaleString()}
+            </Text>
+            <Text style={s.heroMeta}>
+              {t("reports.salesCount", { count: report.count })}
+              {report.count > 0
+                ? `  ·  ${t("analytics.avgSale", { value: `${currency}${Math.round(report.netRevenue / report.count).toLocaleString()}` })}`
+                : ""}
+            </Text>
+          </View>
+
           <View style={s.statGrid}>
             <StatCard
               s={s}
               C={C}
-              label={t("reports.sales")}
-              value={String(report.count)}
-            />
-            <StatCard
-              s={s}
-              label={t("reports.revenue")}
-              value={`${currency}${report.netRevenue.toLocaleString()}`}
-              accent
-              C={C}
+              label={t("reports.profit")}
+              value={`${currency}${report.profitTotal.toLocaleString()}`}
+              accent={report.profitTotal >= 0}
+              danger={report.profitTotal < 0}
             />
             {report.refundedTotal > 0 && (
               <StatCard
@@ -442,111 +528,124 @@ export default function ReportsScreen() {
                 C={C}
               />
             )}
-            <StatCard
-              s={s}
-              label={t("reports.profit")}
-              value={`${currency}${report.profitTotal.toLocaleString()}`}
-              accent
-              C={C}
-            />
           </View>
           <Text style={s.profitHint}>{t("reports.profitHint")}</Text>
 
-          {branchFilter === "all" && branches.length > 1 && (
+          {branchFilter === "all" && canScope && branches.length > 1 && (
             <ReportSection s={s} C={C} title={t("reports.byBranch")}>
               {report.byBranch.map((row) => (
-                <View key={row.label} style={s.row}>
-                  <View style={s.rowLeft}>
-                    <Ionicons
-                      name="business-outline"
-                      size={14}
-                      color={C.textSub}
-                    />
-                    <Text style={s.rowLabel}>{row.label}</Text>
-                  </View>
-                  <Text style={s.rowSub}>
-                    {t("reports.salesCount", { count: row.qty })}
-                  </Text>
-                  <Text style={s.rowValue}>
-                    {currency}
-                    {row.revenue.toLocaleString()}
-                  </Text>
-                </View>
+                <BreakdownRow
+                  key={row.label}
+                  s={s}
+                  C={C}
+                  icon="business-outline"
+                  label={row.label}
+                  meta={t("reports.salesCount", { count: row.qty })}
+                  value={`${currency}${row.revenue.toLocaleString()}`}
+                  share={
+                    row.revenue /
+                    Math.max(1, ...report.byBranch.map((r) => r.revenue))
+                  }
+                />
               ))}
             </ReportSection>
           )}
 
           <ReportSection s={s} C={C} title={t("reports.byPaymentMethod")}>
             {report.byMethod.map((row) => (
-              <View key={row.label} style={s.row}>
-                <View style={s.rowLeft}>
-                  <Ionicons
-                    name={METHOD_ICONS[row.label] ?? "cash-outline"}
-                    size={14}
-                    color={C.textSub}
-                  />
-                  <Text style={s.rowLabel}>{row.label}</Text>
-                </View>
-                <Text style={s.rowSub}>
-                  {t("reports.salesCount", { count: row.qty })}
-                </Text>
-                <Text style={s.rowValue}>
-                  {currency}
-                  {row.revenue.toLocaleString()}
-                </Text>
-              </View>
+              <BreakdownRow
+                key={row.label}
+                s={s}
+                C={C}
+                icon={METHOD_ICONS[row.label] ?? "cash-outline"}
+                label={row.label}
+                meta={t("reports.salesCount", { count: row.qty })}
+                value={`${currency}${row.revenue.toLocaleString()}`}
+                share={
+                  row.revenue /
+                  Math.max(1, ...report.byMethod.map((r) => r.revenue))
+                }
+              />
             ))}
           </ReportSection>
 
           <ReportSection s={s} C={C} title={t("reports.byCashier")}>
             {report.byCashier.map((row) => (
-              <View key={row.label} style={s.row}>
-                <Text style={[s.rowLabel, { flex: 1 }]} numberOfLines={1}>
-                  {row.label}
-                </Text>
-                <Text style={s.rowSub}>
-                  {t("reports.salesCount", { count: row.qty })}
-                </Text>
-                <Text style={s.rowValue}>
-                  {currency}
-                  {row.revenue.toLocaleString()}
-                </Text>
-              </View>
+              <BreakdownRow
+                key={row.label}
+                s={s}
+                C={C}
+                icon="person-outline"
+                label={row.label}
+                meta={t("reports.salesCount", { count: row.qty })}
+                value={`${currency}${row.revenue.toLocaleString()}`}
+                share={
+                  row.revenue /
+                  Math.max(1, ...report.byCashier.map((r) => r.revenue))
+                }
+              />
             ))}
           </ReportSection>
 
           <ReportSection s={s} C={C} title={t("reports.byCategory")}>
             {report.byCategory.map((row) => (
-              <View key={row.label} style={s.row}>
-                <Text style={[s.rowLabel, { flex: 1 }]} numberOfLines={1}>
-                  {row.label}
-                </Text>
-                <Text style={s.rowSub}>
-                  {t("reports.qtySold", { qty: row.qty })}
-                </Text>
-                <Text style={s.rowValue}>
-                  {currency}
-                  {row.revenue.toLocaleString()}
-                </Text>
-              </View>
+              <BreakdownRow
+                key={row.label}
+                s={s}
+                C={C}
+                label={row.label}
+                meta={t("reports.qtySold", { qty: row.qty })}
+                value={`${currency}${row.revenue.toLocaleString()}`}
+                share={
+                  row.revenue /
+                  Math.max(1, ...report.byCategory.map((r) => r.revenue))
+                }
+              />
             ))}
           </ReportSection>
 
           <ReportSection s={s} C={C} title={t("reports.byProduct")}>
-            {report.byProduct.map((row) => (
-              <View key={row.label} style={s.row}>
-                <Text style={[s.rowLabel, { flex: 1 }]} numberOfLines={1}>
-                  {row.label}
-                </Text>
-                <Text style={s.rowSub}>
-                  {t("reports.qtySold", { qty: row.qty })}
-                </Text>
-                <Text style={s.rowValue}>
-                  {currency}
-                  {row.revenue.toLocaleString()}
-                </Text>
-              </View>
+            {/* A shop with 300 products printed 300 rows here, which is
+                where the screen stopped being a report and became a dump.
+                The top ten answer the question; the rest are one tap away
+                for whoever actually needs them. */}
+            {(showAllProducts
+              ? report.byProduct
+              : report.byProduct.slice(0, 10)
+            ).map((row) => (
+              <BreakdownRow
+                key={row.label}
+                s={s}
+                C={C}
+                label={row.label}
+                meta={t("reports.qtySold", { qty: row.qty })}
+                value={`${currency}${row.revenue.toLocaleString()}`}
+                share={
+                  row.revenue /
+                  Math.max(1, ...report.byProduct.map((r) => r.revenue))
+                }
+              />
             ))}
+            {report.byProduct.length > 10 && (
+              <TouchableOpacity
+                style={s.showAllBtn}
+                onPress={() => setShowAllProducts((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.showAllText}>
+                  {showAllProducts
+                    ? t("reports.showTopTen")
+                    : t("reports.showAllProducts", {
+                        count: report.byProduct.length,
+                      })}
+                </Text>
+                <Ionicons
+                  name={showAllProducts ? "chevron-up" : "chevron-down"}
+                  size={14}
+                  color={C.accent}
+                />
+              </TouchableOpacity>
+            )}
           </ReportSection>
 
           <ReportSection s={s} C={C} title={t("reports.discountBreakdown")}>
@@ -610,6 +709,52 @@ export default function ReportsScreen() {
 }
 
 // ─── Small pieces ───────────────────────────────────────────────────────────
+
+/**
+ * One line of a breakdown, with a bar showing its share of the biggest row.
+ *
+ * The lists were label / count / amount and nothing else, which makes the
+ * reader do the comparing — three similar-looking numbers tell you nothing
+ * about whether the first is twice the third or a tenth of it. The bar is
+ * scaled to the largest row in that section, so the shape of the section
+ * reads before any number does.
+ */
+const BreakdownRow = ({
+  s,
+  C,
+  label,
+  meta,
+  value,
+  share,
+  icon,
+}: {
+  s: Styles;
+  C: ThemeColors;
+  label: string;
+  meta?: string;
+  value: string;
+  share: number;
+  icon?: keyof typeof Ionicons.glyphMap;
+}) => (
+  <View style={s.bRow}>
+    <View style={s.bRowTop}>
+      {!!icon && <Ionicons name={icon} size={13} color={C.textSub} />}
+      <Text style={s.bLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      {!!meta && <Text style={s.bMeta}>{meta}</Text>}
+      <Text style={s.bValue}>{value}</Text>
+    </View>
+    <View style={s.bTrack}>
+      <View
+        style={[
+          s.bFill,
+          { width: `${Math.max(1.5, Math.min(100, share * 100))}%` },
+        ]}
+      />
+    </View>
+  </View>
+);
 
 const StatCard = ({
   s,
@@ -699,45 +844,6 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
     },
     title: { fontSize: F.xxl, fontWeight: "700", color: C.text, flex: 1 },
 
-    periodRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-      paddingHorizontal: 16,
-      marginBottom: 8,
-    },
-    periodBtn: {
-      flexGrow: 1,
-      flexBasis: "22%",
-      paddingVertical: 10,
-      borderRadius: R.md,
-      backgroundColor: C.card,
-      alignItems: "center",
-      borderWidth: 1,
-      borderColor: C.border,
-    },
-    periodBtnActive: { backgroundColor: C.accent, borderColor: C.accent },
-    periodText: { color: C.muted, fontSize: F.sm, fontWeight: "700" },
-    periodTextActive: { color: C.accentFg },
-
-    branchFilterRow: {
-      paddingHorizontal: 16,
-      marginBottom: 8,
-      gap: 8,
-      flexDirection: "row",
-    },
-    branchFilterBtn: {
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: R.full,
-      backgroundColor: C.card,
-      borderWidth: 1,
-      borderColor: C.border,
-    },
-    branchFilterBtnActive: { backgroundColor: C.accent, borderColor: C.accent },
-    branchFilterText: { color: C.muted, fontSize: F.sm, fontWeight: "700" },
-    branchFilterTextActive: { color: C.accentFg },
-
     navRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -757,11 +863,12 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
       borderColor: C.border,
     },
     navBtnOff: { opacity: 0.3 },
+    navLabelBtn: { flexDirection: "row", alignItems: "center", gap: 8 },
     navLabel: {
       color: C.text,
       fontSize: F.md,
       fontWeight: "700",
-      minWidth: 160,
+      minWidth: 150,
       textAlign: "center",
     },
 
@@ -772,6 +879,133 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
       marginTop: 40,
       fontSize: F.sm,
     },
+
+    controlRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingBottom: 8,
+    },
+    segment: {
+      flex: 1,
+      flexDirection: "row",
+      borderRadius: R.md,
+      padding: 3,
+      backgroundColor: C.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: C.border,
+    },
+    segmentBtn: {
+      flex: 1,
+      paddingVertical: 7,
+      borderRadius: R.sm,
+      alignItems: "center",
+    },
+    segmentBtnActive: { backgroundColor: C.accent },
+    segmentText: { color: C.textSub, fontSize: F.xs, fontWeight: "700" },
+    segmentTextActive: { color: C.accentFg },
+    branchBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      maxWidth: 150,
+      paddingHorizontal: 11,
+      paddingVertical: 9,
+      borderRadius: R.md,
+      backgroundColor: C.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: C.border,
+    },
+    branchBtnText: {
+      color: C.text,
+      fontSize: F.xs,
+      fontWeight: "700",
+      flexShrink: 1,
+    },
+
+    pickerOverlay: {
+      flex: 1,
+      backgroundColor: C.overlay,
+      justifyContent: "center",
+      padding: 32,
+    },
+    pickerSheet: {
+      backgroundColor: C.card,
+      borderRadius: R.lg,
+      padding: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: C.border,
+      ...Shadow.lg,
+    },
+    pickerTitle: {
+      color: C.muted,
+      fontSize: F.xs,
+      fontWeight: "700",
+      letterSpacing: 0.6,
+      textTransform: "uppercase",
+      paddingHorizontal: 12,
+      paddingTop: 8,
+      paddingBottom: 6,
+    },
+    pickerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      borderRadius: R.sm,
+    },
+    pickerRowText: { color: C.text, fontSize: F.md, flexShrink: 1 },
+    pickerRowTextActive: { color: C.accent, fontWeight: "700" },
+
+    hero: {
+      backgroundColor: C.card,
+      borderRadius: R.xl,
+      padding: 18,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: C.border,
+      ...Shadow.md,
+      gap: 3,
+    },
+    heroLabel: {
+      color: C.muted,
+      fontSize: F.xs,
+      fontWeight: "700",
+      letterSpacing: 0.7,
+      textTransform: "uppercase",
+    },
+    heroValue: {
+      color: C.accent,
+      fontSize: 32,
+      fontWeight: "800",
+      letterSpacing: -0.5,
+    },
+    heroMeta: { color: C.muted, fontSize: F.xs, marginTop: 2 },
+
+    bRow: { paddingVertical: 9, gap: 6 },
+    bRowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+    bLabel: { color: C.text, fontSize: F.sm, fontWeight: "600", flex: 1 },
+    bMeta: { color: C.muted, fontSize: F.xs },
+    bValue: {
+      color: C.text,
+      fontSize: F.sm,
+      fontWeight: "700",
+      minWidth: 78,
+      textAlign: "right",
+    },
+    bTrack: { height: 3, borderRadius: 2, backgroundColor: C.surface },
+    bFill: { height: 3, borderRadius: 2, backgroundColor: C.accent },
+
+    showAllBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 11,
+      marginTop: 4,
+    },
+    showAllText: { color: C.accent, fontSize: F.sm, fontWeight: "700" },
 
     statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
     statCard: {
