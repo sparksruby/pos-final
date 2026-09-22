@@ -252,6 +252,29 @@ export const productsRepo = {
     }));
   },
 
+  // The same thing keyed by name, for sales that arrived from another
+  // branch: the mirror stores what a product was called when it sold, not
+  // its id. The catalogue is shared across branches, so a name resolves for
+  // anything still in it — and a product renamed since the sale simply does
+  // not match, which costs a cost price rather than producing a wrong one.
+  getProductMetaByName: async (): Promise<
+    Map<string, { category: string; costPrice: number }>
+  > => {
+    const db = await getDb();
+    const rows = await db.getAllAsync<{
+      name: string;
+      category_name: string;
+      cost_price: number;
+    }>(
+      `SELECT p.name as name, c.name as category_name, p.cost_price as cost_price
+       FROM products p JOIN categories c ON c.id = p.category_id`,
+    );
+    const map = new Map<string, { category: string; costPrice: number }>();
+    for (const r of rows)
+      map.set(r.name, { category: r.category_name, costPrice: r.cost_price });
+    return map;
+  },
+
   // All Branches Activity's Products tab — every branch's own stock for
   // every product, not just the admin device's own branch (getAllProducts/
   // getAllCategories above are always scoped to one branchId). Joined in JS

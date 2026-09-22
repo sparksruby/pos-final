@@ -142,6 +142,60 @@ export default function SyncOverviewScreen() {
   const visibleMovements = filteredMovements.slice(0, visibleCount);
   const visibleProductRows = filteredProductRows.slice(0, visibleCount);
   const visibleExpenses = filteredExpenses.slice(0, visibleCount);
+  // Branch roll-up for the "All Branches" view.
+  //
+  // Three branches used to mean one flat run of every sale, movement and
+  // expense from all of them interleaved, which is unreadable the moment a
+  // shop does any volume. The totals come first now, and picking a branch
+  // drills into just that branch's rows.
+  const branchSummaries = React.useMemo(() => {
+    const rows = new Map<
+      string,
+      {
+        name: string;
+        branchId: number | null;
+        salesTotal: number;
+        salesCount: number;
+        itemCount: number;
+        movementCount: number;
+        expenseTotal: number;
+      }
+    >();
+    const row = (name: string | null) => {
+      const key = name ?? "—";
+      if (!rows.has(key)) {
+        rows.set(key, {
+          name: key,
+          branchId: branches.find((b) => b.name === key)?.id ?? null,
+          salesTotal: 0,
+          salesCount: 0,
+          itemCount: 0,
+          movementCount: 0,
+          expenseTotal: 0,
+        });
+      }
+      return rows.get(key)!;
+    };
+    for (const sale of sales) {
+      const r = row(sale.branchName);
+      r.salesTotal += sale.total;
+      r.salesCount += 1;
+      r.itemCount += sale.items.reduce((n, i) => n + i.qty, 0);
+    }
+    for (const m of movements) row(m.branchName).movementCount += 1;
+    for (const e of expenses) row(e.branchName).expenseTotal += e.amount;
+    return Array.from(rows.values()).sort(
+      (a, b) => b.salesTotal - a.salesTotal,
+    );
+  }, [sales, movements, expenses, branches]);
+
+  const showBranchSummary = branchFilter == null && branchSummaries.length > 1;
+
+  // Which sale's lines are open. Collapsed, a sale is one line — its total
+  // and how many items — so a day's trading can be read at a glance instead
+  // of scrolled past.
+  const [openSaleId, setOpenSaleId] = useState<number | null>(null);
+
   const activeTotal =
     tab === "sales"
       ? filteredSales.length
@@ -407,34 +461,92 @@ export default function SyncOverviewScreen() {
             <ActivityIndicator color={C.accent} style={{ marginTop: 40 }} />
           ) : tab === "sales" ? (
             <ScrollView contentContainerStyle={s.scroll}>
-              {filteredSales.length === 0 && (
-                <Text style={s.emptyText}>{t("syncOverview.noSales")}</Text>
-              )}
-              {visibleSales.map((sale) => (
-                <View key={sale.id} style={s.card}>
-                  <View style={s.cardHeaderRow}>
-                    <Text style={s.branchTag}>{sale.branchName ?? "—"}</Text>
-                    <Text style={s.dateText}>
-                      {new Date(sale.createdAt).toLocaleString()}
-                    </Text>
-                  </View>
-                  {sale.items.map((item, idx) => (
-                    <Text key={idx} style={s.itemLine} numberOfLines={1}>
-                      {item.productName} × {item.qty}
-                    </Text>
+              {showBranchSummary ? (
+                <>
+                  {branchSummaries.map((b) => (
+                    <TouchableOpacity
+                      key={b.name}
+                      style={s.card}
+                      activeOpacity={0.7}
+                      onPress={() =>
+                        b.branchId != null && setBranchFilter(b.branchId)
+                      }
+                    >
+                      <View style={s.cardHeaderRow}>
+                        <Text style={s.branchTag}>{b.name}</Text>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={15}
+                          color={C.muted}
+                        />
+                      </View>
+                      <View style={s.cardFooterRow}>
+                        <Text style={s.metaText}>
+                          {t("syncOverview.saleCount", { count: b.salesCount })}
+                          {"  ·  "}
+                          {t("syncOverview.itemCount", { count: b.itemCount })}
+                        </Text>
+                        <Text style={s.totalText}>
+                          ${b.salesTotal.toLocaleString()}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
                   ))}
-                  <View style={s.cardFooterRow}>
-                    <Text style={s.metaText}>
-                      {sale.paymentMethod}
-                      {sale.cashierName ? ` · ${sale.cashierName}` : ""}
-                    </Text>
-                    <Text style={s.totalText}>
-                      ${sale.total.toLocaleString()}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-              {activeTotal > visibleCount && (
+                  <Text style={s.summaryHint}>
+                    {t("syncOverview.tapBranch")}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  {filteredSales.length === 0 && (
+                    <Text style={s.emptyText}>{t("syncOverview.noSales")}</Text>
+                  )}
+                  {visibleSales.map((sale) => {
+                    const open = openSaleId === sale.id;
+                    const itemCount = sale.items.reduce((n, i) => n + i.qty, 0);
+                    return (
+                      <TouchableOpacity
+                        key={sale.id}
+                        style={s.card}
+                        activeOpacity={0.7}
+                        onPress={() => setOpenSaleId(open ? null : sale.id)}
+                      >
+                        <View style={s.cardHeaderRow}>
+                          <Text style={s.branchTag}>
+                            {sale.branchName ?? "—"}
+                          </Text>
+                          <Text style={s.dateText}>
+                            {new Date(sale.createdAt).toLocaleString()}
+                          </Text>
+                        </View>
+                        {open &&
+                          sale.items.map((item, idx) => (
+                            <Text
+                              key={idx}
+                              style={s.itemLine}
+                              numberOfLines={1}
+                            >
+                              {item.productName} × {item.qty}
+                            </Text>
+                          ))}
+                        <View style={s.cardFooterRow}>
+                          <Text style={s.metaText}>
+                            {open
+                              ? `${sale.paymentMethod}${sale.cashierName ? ` · ${sale.cashierName}` : ""}`
+                              : t("syncOverview.itemCount", {
+                                  count: itemCount,
+                                })}
+                          </Text>
+                          <Text style={s.totalText}>
+                            ${sale.total.toLocaleString()}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+              {!showBranchSummary && activeTotal > visibleCount && (
                 <TouchableOpacity
                   style={s.loadMoreBtn}
                   onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
@@ -715,6 +827,13 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
       fontSize: F.sm,
     },
 
+    summaryHint: {
+      color: C.muted,
+      fontSize: F.xs,
+      textAlign: "center",
+      marginTop: 8,
+      marginBottom: 4,
+    },
     loadMoreBtn: {
       marginTop: 4,
       paddingVertical: 12,

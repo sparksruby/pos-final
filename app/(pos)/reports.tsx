@@ -28,7 +28,8 @@ import {
   isCurrentPeriod,
   type Period,
 } from "../../src/utils/reportPeriods";
-import { exportReportExcel } from "@/utils/exportReportExcel";
+import { exportReportExcel } from "../../src/utils/exportReportExcel";
+import { syncRepo } from "../../src/db/syncRepo";
 import { useAlert } from "@/context/AlertContext";
 import { isDirectSaveAvailable } from "../../src/utils/directSave";
 import { F, R, Shadow, ThemeColors } from "../../src/theme";
@@ -93,10 +94,21 @@ export default function ReportsScreen() {
   const [allSales, setAllSales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // A mirrored sale carries its branch's name, not this device's local id
+  // for it, so the filter matches on either.
+  const branchFilterName =
+    branchFilter === "all"
+      ? null
+      : branches.find((b) => b.id === branchFilter)?.name;
   const sales =
     branchFilter === "all"
       ? allSales
-      : allSales.filter((sale) => sale.branchId === branchFilter);
+      : allSales.filter(
+          (sale) =>
+            sale.branchId === branchFilter ||
+            (sale.branchId === undefined &&
+              sale.branchName === branchFilterName),
+        );
 
   // productId -> category name / cost price, built once from every
   // category+product (including inactive/deactivated ones, so historical
@@ -115,6 +127,13 @@ export default function ReportsScreen() {
     });
   }, []);
 
+  const [productMetaByName, setProductMetaByName] = useState<
+    Map<string, { category: string; costPrice: number }>
+  >(new Map());
+  useEffect(() => {
+    productsRepo.getProductMetaByName().then(setProductMetaByName);
+  }, []);
+
   // Stock on hand — a snapshot of right-now inventory, not date-ranged like
   // the sales figures above, so it's loaded independently of period/anchor.
   const [stockOnHand, setStockOnHand] = useState<Product[]>([]);
@@ -130,9 +149,15 @@ export default function ReportsScreen() {
   useEffect(() => {
     setIsLoading(true);
     const { from, to } = periodBounds(period, anchor);
-    salesRepo
-      .getSales(from.toISOString(), to.toISOString())
-      .then(setAllSales)
+    // This branch's own sales, plus every other branch's on the device that
+    // mirrors them. Reports read only the local sales table before, so the
+    // branch buttons under the header had nothing but this branch to filter
+    // — the owner picked "Branch Two" and got an empty report.
+    Promise.all([
+      salesRepo.getSales(from.toISOString(), to.toISOString()),
+      syncRepo.getSalesForReports(from.toISOString(), to.toISOString()),
+    ])
+      .then(([own, others]) => setAllSales([...own, ...others]))
       .finally(() => setIsLoading(false));
   }, [period, anchor]);
 
@@ -180,7 +205,12 @@ export default function ReportsScreen() {
 
         const netUnitRevenue = (item.subtotal - item.discount) / item.qty;
         const netRevenue = netUnitRevenue * netQty;
-        const meta = productMeta.get(item.productId);
+        // A mirrored sale has no product id — see getSalesForReports — so
+        // fall back to the name. A product renamed since it sold simply
+        // does not match, which costs a cost price rather than inventing one.
+        const meta = item.productId
+          ? productMeta.get(item.productId)
+          : productMetaByName.get(item.productName);
         const cost = (meta?.costPrice ?? 0) * netQty;
         const profit = netRevenue - cost;
         profitTotal += profit;
@@ -220,7 +250,7 @@ export default function ReportsScreen() {
       byMethod: sortDesc(byMethod),
       byBranch: sortDesc(byBranch),
     };
-  }, [sales, productMeta, t]);
+  }, [sales, productMeta, productMetaByName, t]);
 
   // Android only — offers a straight-to-folder save alongside the share
   // sheet, same as Sales History. iOS's share sheet already has "Save to

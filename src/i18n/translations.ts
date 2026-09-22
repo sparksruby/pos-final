@@ -180,6 +180,9 @@ export const translations = {
     "shopSettings.loyaltyRedeemRate": "Currency Value per Point Redeemed",
     "shopSettings.loyaltyHint":
       "Example: rate 1 earns 1 point per {currency}1 spent; rate 0.01 means 100 points = {currency}1",
+    "syncOverview.saleCount": "{count} sales",
+    "syncOverview.itemCount": "{count} items",
+    "syncOverview.tapBranch": "Tap a branch to see its sales.",
     "syncOverview.rebuildTitle": "Rebuild branch history?",
     "syncOverview.rebuildBody":
       "Fetches every branch's sales, stock movements and expenses from the server again, from the beginning. Use this when history is missing rather than just out of date — an ordinary refresh only asks for what changed since last time. Nothing is duplicated and nothing of this branch's own is touched.",
@@ -837,6 +840,10 @@ export const translations = {
     "shopSettings.loyaltyRedeemRate": "Point တစ်ခုလျှင် ငွေတန်ဖိုး",
     "shopSettings.loyaltyHint":
       "ဥပမာ - rate 1 ဆိုလျှင် {currency}1 ဝယ်ယူတိုင်း point 1 ရမည်; rate 0.01 ဆိုလျှင် point 100 = {currency}1",
+    "syncOverview.saleCount": "အရောင်း {count} ကြိမ်",
+    "syncOverview.itemCount": "ပစ္စည်း {count} ခု",
+    "syncOverview.tapBranch":
+      "ဆိုင်ခွဲတစ်ခုကို နှိပ်ပြီး အရောင်းစာရင်း ကြည့်ပါ။",
     "syncOverview.rebuildTitle": "ဆိုင်ခွဲမှတ်တမ်း ပြန်တည်ဆောက်မလား?",
     "syncOverview.rebuildBody":
       "ဆိုင်ခွဲအားလုံးရဲ့ အရောင်း၊ ကုန်ပစ္စည်းလှုပ်ရှားမှုနဲ့ အသုံးစရိတ်တွေကို server ကနေ အစကနေ ပြန်ဆွဲပါမယ်။ မှတ်တမ်းတွေ ပျောက်နေတဲ့အခါ သုံးပါ — ပုံမှန် refresh က နောက်ဆုံးဆွဲပြီးနောက် ပြောင်းလဲတာကိုပဲ တောင်းလို့ပါ။ ထပ်နေတာ မဖြစ်ပါဘူး၊ ဒီဆိုင်ခွဲရဲ့ ကိုယ်ပိုင် data လည်း မထိပါဘူး။",

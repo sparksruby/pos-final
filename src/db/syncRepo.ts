@@ -1,5 +1,6 @@
 import * as Crypto from "expo-crypto";
 import { getDb } from "./database";
+import type { Sale } from "../types";
 
 export class SyncError extends Error {
   constructor(
@@ -1476,6 +1477,100 @@ export const syncRepo = {
   // All Branches Activity screen — only ever has rows on the device
   // holding the admin key (see pull()'s remote_sales/remote_stock_movements
   // mirroring above); empty on every other device.
+  /**
+   * Other branches' sales over a date range, shaped like this device's own
+   * so Reports can add them to its totals without a second code path.
+   *
+   * Only the main-branch device has these at all — a branch device's pull
+   * never mirrors anyone else's history. Everywhere else this returns [].
+   *
+   * Two fields the mirror cannot supply, and the honest thing is to say so
+   * rather than invent them:
+   *
+   *  - productId. The mirror stores the product's name as it was sold,
+   *    not its id, so items come back with productId 0 and the caller
+   *    matches on name instead. The catalogue is shared across branches,
+   *    so a name resolves for anything still in it.
+   *  - refundedQty and per-line discount, which the mirror never carried.
+   *    Both come back 0, so a refund made at another branch does not
+   *    reduce that branch's line here.
+   */
+  getSalesForReports: async (
+    fromIso: string,
+    toIso: string,
+  ): Promise<Sale[]> => {
+    const db = await getDb();
+    const config = await getConfig();
+    if (!config?.adminKey) return [];
+
+    const rows = await db.getAllAsync<{
+      id: number;
+      branch_name: string | null;
+      subtotal: number;
+      discount: number;
+      tax_percent: number;
+      tax_amount: number;
+      total: number;
+      tendered: number;
+      change_due: number;
+      payment_method: string;
+      cashier_name: string | null;
+      customer_name: string | null;
+      created_at: string;
+    }>(
+      `SELECT id, branch_name, subtotal, discount, tax_percent, tax_amount, total,
+              tendered, change_due, payment_method, cashier_name, customer_name, created_at
+       FROM remote_sales WHERE created_at >= ? AND created_at <= ? ORDER BY created_at DESC`,
+      [fromIso, toIso],
+    );
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((r) => r.id);
+    const itemRows = await db.getAllAsync<{
+      remote_sale_id: number;
+      product_name: string;
+      unit_price: number;
+      qty: number;
+      subtotal: number;
+    }>(
+      `SELECT remote_sale_id, product_name, unit_price, qty, subtotal
+       FROM remote_sale_items WHERE remote_sale_id IN (${ids.map(() => "?").join(",")})`,
+      ids,
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      subtotal: r.subtotal,
+      discount: r.discount,
+      taxPercent: r.tax_percent,
+      taxAmount: r.tax_amount,
+      total: r.total,
+      tendered: r.tendered,
+      changeDue: r.change_due,
+      paymentMethod: r.payment_method as Sale["paymentMethod"],
+      cashierName: r.cashier_name ?? undefined,
+      branchName: r.branch_name ?? undefined,
+      customerName: r.customer_name ?? undefined,
+      pointsEarned: 0,
+      pointsRedeemed: 0,
+      refundedAmount: 0,
+      createdAt: r.created_at,
+      items: itemRows
+        .filter((i) => i.remote_sale_id === r.id)
+        .map((i, n) => ({
+          id: n,
+          productId: 0,
+          productName: i.product_name,
+          unitPrice: i.unit_price,
+          unit: "",
+          qty: i.qty,
+          subtotal: i.subtotal,
+          discount: 0,
+          refundedQty: 0,
+        })),
+    }));
+  },
+
   getRemoteSales: async (limit = 200): Promise<RemoteSale[]> => {
     const db = await getDb();
     const rows = await db.getAllAsync<{
