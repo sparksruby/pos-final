@@ -4,64 +4,64 @@ import { getDb } from "./database";
 import type { Category, Product } from "../types";
 
 export interface AdminProductStockRow {
-  id:           number;
-  name:         string;
+  id: number;
+  name: string;
   categoryName: string;
-  price:        number;
-  unit:         string;
+  price: number;
+  unit: string;
   branchStocks: { branchId: number; branchName: string; stockQty: number }[];
 }
 
 interface CategoryRow {
-  id:         number;
-  name:       string;
+  id: number;
+  name: string;
   sort_order: number;
-  is_active:  number;
+  is_active: number;
 }
 
 interface ProductRow {
-  id:                  number;
-  category_id:         number;
-  name:                string;
-  sku:                 string | null;
-  barcode:             string | null;
-  price:               number;
-  wholesale_price:     number | null;
-  cost_price:          number;
-  unit:                string;
-  image_uri:           string | null;
-  stock_qty:           number;
+  id: number;
+  category_id: number;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  price: number;
+  wholesale_price: number | null;
+  cost_price: number;
+  unit: string;
+  image_uri: string | null;
+  stock_qty: number;
   low_stock_threshold: number;
-  expiry_date:         string | null;
-  label_text:          string | null;
-  is_active:           number;
-  sort_order:          number;
+  expiry_date: string | null;
+  label_text: string | null;
+  is_active: number;
+  sort_order: number;
 }
 
 const toProduct = (r: ProductRow): Product => ({
-  id:                r.id,
-  categoryId:        r.category_id,
-  name:              r.name,
-  sku:               r.sku ?? undefined,
-  barcode:           r.barcode ?? undefined,
-  price:             r.price,
-  wholesalePrice:    r.wholesale_price ?? undefined,
-  costPrice:         r.cost_price,
-  unit:              r.unit,
-  imageUri:          r.image_uri ?? undefined,
-  stockQty:          r.stock_qty,
+  id: r.id,
+  categoryId: r.category_id,
+  name: r.name,
+  sku: r.sku ?? undefined,
+  barcode: r.barcode ?? undefined,
+  price: r.price,
+  wholesalePrice: r.wholesale_price ?? undefined,
+  costPrice: r.cost_price,
+  unit: r.unit,
+  imageUri: r.image_uri ?? undefined,
+  stockQty: r.stock_qty,
   lowStockThreshold: r.low_stock_threshold,
-  expiryDate:        r.expiry_date ?? undefined,
-  labelText:         r.label_text ?? undefined,
-  isActive:          !!r.is_active,
-  sortOrder:         r.sort_order,
+  expiryDate: r.expiry_date ?? undefined,
+  labelText: r.label_text ?? undefined,
+  isActive: !!r.is_active,
+  sortOrder: r.sort_order,
 });
 
 const toCategory = (r: CategoryRow, products: Product[]): Category => ({
-  id:        r.id,
-  name:      r.name,
+  id: r.id,
+  name: r.name,
   sortOrder: r.sort_order,
-  isActive:  !!r.is_active,
+  isActive: !!r.is_active,
   products,
 });
 
@@ -79,20 +79,26 @@ const PRODUCT_COLUMNS = `
 `;
 const PRODUCT_JOIN = `FROM products p LEFT JOIN branch_stock bs ON bs.product_id = p.id AND bs.branch_id = ?`;
 
-const loadCategories = async (activeOnly: boolean, branchId: number): Promise<Category[]> => {
+const loadCategories = async (
+  activeOnly: boolean,
+  branchId: number,
+): Promise<Category[]> => {
   const db = await getDb();
   const categoryRows = await db.getAllAsync<CategoryRow>(
     activeOnly
       ? "SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, id"
-      : "SELECT * FROM categories ORDER BY sort_order, id"
+      : "SELECT * FROM categories ORDER BY sort_order, id",
   );
   const productRows = await db.getAllAsync<ProductRow>(
     `SELECT ${PRODUCT_COLUMNS} ${PRODUCT_JOIN}
      WHERE ${activeOnly ? "p.is_active = 1" : "1=1"} ORDER BY p.sort_order, p.id`,
-    [branchId]
+    [branchId],
   );
-  return categoryRows.map(c =>
-    toCategory(c, productRows.filter(p => p.category_id === c.id).map(toProduct))
+  return categoryRows.map((c) =>
+    toCategory(
+      c,
+      productRows.filter((p) => p.category_id === c.id).map(toProduct),
+    ),
   );
 };
 
@@ -121,11 +127,15 @@ const generateCodes = async (
   typedSku: string | undefined,
 ): Promise<{ barcode: string | null; sku: string | null }> => {
   const wantsBarcode = !typedBarcode?.trim();
-  const wantsSku     = !typedSku?.trim();
+  const wantsSku = !typedSku?.trim();
 
   const settings = await db.getFirstAsync<{
-    auto_barcode_enabled: number; auto_barcode_prefix: string; auto_barcode_next: number;
-    auto_sku_enabled: number; auto_sku_prefix: string; auto_sku_next: number;
+    auto_barcode_enabled: number;
+    auto_barcode_prefix: string;
+    auto_barcode_next: number;
+    auto_sku_enabled: number;
+    auto_sku_prefix: string;
+    auto_sku_next: number;
     auto_code_till: number;
   }>(`SELECT auto_barcode_enabled, auto_barcode_prefix, auto_barcode_next,
              auto_sku_enabled, auto_sku_prefix, auto_sku_next, auto_code_till
@@ -133,7 +143,7 @@ const generateCodes = async (
 
   const result = {
     barcode: typedBarcode?.trim() || null,
-    sku:     typedSku?.trim() || null,
+    sku: typedSku?.trim() || null,
   };
   if (!settings) return result;
 
@@ -146,13 +156,16 @@ const generateCodes = async (
   // number to a second product makes the till ring up whichever row the
   // database happens to return first.
   const findFree = async (
-    column: "barcode" | "sku", format: (n: number) => string, from: number
+    column: "barcode" | "sku",
+    format: (n: number) => string,
+    from: number,
   ): Promise<{ code: string; next: number }> => {
     let n = Math.max(1, from);
     for (let tries = 0; tries < 10000; tries++, n++) {
       const code = format(n);
       const clash = await db.getFirstAsync<{ id: number }>(
-        `SELECT id FROM products WHERE ${column} = ?`, [code]
+        `SELECT id FROM products WHERE ${column} = ?`,
+        [code],
       );
       if (!clash) return { code, next: n + 1 };
     }
@@ -162,21 +175,27 @@ const generateCodes = async (
   if (wantsBarcode && settings.auto_barcode_enabled) {
     const { code, next } = await findFree(
       "barcode",
-      n => `${settings.auto_barcode_prefix}${till}${pad(n, 5)}`,
-      settings.auto_barcode_next
+      (n) => `${settings.auto_barcode_prefix}${till}${pad(n, 5)}`,
+      settings.auto_barcode_next,
     );
     result.barcode = code;
-    await db.runAsync("UPDATE shop_settings SET auto_barcode_next = ? WHERE id = 1", [next]);
+    await db.runAsync(
+      "UPDATE shop_settings SET auto_barcode_next = ? WHERE id = 1",
+      [next],
+    );
   }
 
   if (wantsSku && settings.auto_sku_enabled) {
     const { code, next } = await findFree(
       "sku",
-      n => `${settings.auto_sku_prefix}-${till}-${pad(n, 5)}`,
-      settings.auto_sku_next
+      (n) => `${settings.auto_sku_prefix}-${till}-${pad(n, 5)}`,
+      settings.auto_sku_next,
     );
     result.sku = code;
-    await db.runAsync("UPDATE shop_settings SET auto_sku_next = ? WHERE id = 1", [next]);
+    await db.runAsync(
+      "UPDATE shop_settings SET auto_sku_next = ? WHERE id = 1",
+      [next],
+    );
   }
 
   return result;
@@ -190,11 +209,14 @@ export const productsRepo = {
   getAllCategories: (branchId: number) => loadCategories(false, branchId),
 
   // Barcode scan lookup — only matches active (sellable) products.
-  getByBarcode: async (barcode: string, branchId: number): Promise<Product | null> => {
+  getByBarcode: async (
+    barcode: string,
+    branchId: number,
+  ): Promise<Product | null> => {
     const db = await getDb();
     const row = await db.getFirstAsync<ProductRow>(
       `SELECT ${PRODUCT_COLUMNS} ${PRODUCT_JOIN} WHERE p.barcode = ? AND p.is_active = 1`,
-      [branchId, barcode]
+      [branchId, barcode],
     );
     return row ? toProduct(row) : null;
   },
@@ -204,20 +226,30 @@ export const productsRepo = {
     const db = await getDb();
     const rows = await db.getAllAsync<ProductRow>(
       `SELECT ${PRODUCT_COLUMNS} ${PRODUCT_JOIN} WHERE p.is_active = 1 ORDER BY p.name`,
-      [branchId]
+      [branchId],
     );
     return rows.map(toProduct);
   },
 
   // Reports — cost/category are catalog-wide (not branch-specific), so this
   // skips branch_stock entirely rather than making the caller pick a branch.
-  getAllProductMeta: async (): Promise<{ id: number; categoryName: string; costPrice: number }[]> => {
+  getAllProductMeta: async (): Promise<
+    { id: number; categoryName: string; costPrice: number }[]
+  > => {
     const db = await getDb();
-    const rows = await db.getAllAsync<{ id: number; category_name: string; cost_price: number }>(
+    const rows = await db.getAllAsync<{
+      id: number;
+      category_name: string;
+      cost_price: number;
+    }>(
       `SELECT p.id as id, c.name as category_name, p.cost_price as cost_price
-       FROM products p JOIN categories c ON c.id = p.category_id`
+       FROM products p JOIN categories c ON c.id = p.category_id`,
     );
-    return rows.map(r => ({ id: r.id, categoryName: r.category_name, costPrice: r.cost_price }));
+    return rows.map((r) => ({
+      id: r.id,
+      categoryName: r.category_name,
+      costPrice: r.cost_price,
+    }));
   },
 
   // All Branches Activity's Products tab — every branch's own stock for
@@ -228,24 +260,38 @@ export const productsRepo = {
   // never received a transfer) reads as 0 rather than being omitted.
   getAllProductsWithBranchStock: async (): Promise<AdminProductStockRow[]> => {
     const db = await getDb();
-    const products = await db.getAllAsync<{ id: number; name: string; category_name: string; price: number; unit: string }>(
+    const products = await db.getAllAsync<{
+      id: number;
+      name: string;
+      category_name: string;
+      price: number;
+      unit: string;
+    }>(
       `SELECT p.id as id, p.name as name, c.name as category_name, p.price as price, p.unit as unit
        FROM products p JOIN categories c ON c.id = p.category_id
-       ORDER BY c.sort_order, c.id, p.sort_order, p.id`
+       ORDER BY c.sort_order, c.id, p.sort_order, p.id`,
     );
     const branches = await db.getAllAsync<{ id: number; name: string }>(
-      "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY id"
+      "SELECT id, name FROM branches WHERE is_active = 1 ORDER BY id",
     );
-    const stockRows = await db.getAllAsync<{ branch_id: number; product_id: number; stock_qty: number }>(
-      "SELECT branch_id, product_id, stock_qty FROM branch_stock"
-    );
+    const stockRows = await db.getAllAsync<{
+      branch_id: number;
+      product_id: number;
+      stock_qty: number;
+    }>("SELECT branch_id, product_id, stock_qty FROM branch_stock");
 
-    return products.map(p => ({
-      id: p.id, name: p.name, categoryName: p.category_name, price: p.price, unit: p.unit,
-      branchStocks: branches.map(b => ({
+    return products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      categoryName: p.category_name,
+      price: p.price,
+      unit: p.unit,
+      branchStocks: branches.map((b) => ({
         branchId: b.id,
         branchName: b.name,
-        stockQty: stockRows.find(r => r.branch_id === b.id && r.product_id === p.id)?.stock_qty ?? 0,
+        stockQty:
+          stockRows.find((r) => r.branch_id === b.id && r.product_id === p.id)
+            ?.stock_qty ?? 0,
       })),
     }));
   },
@@ -257,28 +303,39 @@ export const productsRepo = {
     const db = await getDb();
     const { lastInsertRowId } = await db.runAsync(
       "INSERT INTO categories (name, sort_order, is_active, sync_uuid) VALUES (?, 0, 1, ?)",
-      [name, Crypto.randomUUID()]
+      [name, Crypto.randomUUID()],
     );
-    return { id: lastInsertRowId, name, sortOrder: 0, isActive: true, products: [] };
+    return {
+      id: lastInsertRowId,
+      name,
+      sortOrder: 0,
+      isActive: true,
+      products: [],
+    };
   },
 
   updateCategory: async (
     id: number,
-    body: { name: string; sortOrder: number; isActive: boolean }
+    body: { name: string; sortOrder: number; isActive: boolean },
   ) => {
     const db = await getDb();
     await db.runAsync(
       "UPDATE categories SET name = ?, sort_order = ?, is_active = ? WHERE id = ?",
-      [body.name, body.sortOrder, body.isActive ? 1 : 0, id]
+      [body.name, body.sortOrder, body.isActive ? 1 : 0, id],
     );
   },
 
   deleteCategory: async (id: number) => {
     const db = await getDb();
     await db.withTransactionAsync(async () => {
-      const products = await db.getAllAsync<{ id: number }>("SELECT id FROM products WHERE category_id = ?", [id]);
+      const products = await db.getAllAsync<{ id: number }>(
+        "SELECT id FROM products WHERE category_id = ?",
+        [id],
+      );
       for (const p of products) {
-        await db.runAsync("DELETE FROM branch_stock WHERE product_id = ?", [p.id]);
+        await db.runAsync("DELETE FROM branch_stock WHERE product_id = ?", [
+          p.id,
+        ]);
       }
       await db.runAsync("DELETE FROM products WHERE category_id = ?", [id]);
       await db.runAsync("DELETE FROM categories WHERE id = ?", [id]);
@@ -288,22 +345,26 @@ export const productsRepo = {
   // stockQty/lowStockThreshold here apply to `branchId` only — every other
   // existing branch starts this product at 0 stock until it's stocked or
   // receives a transfer.
-  createProduct: async (branchId: number, body: {
-    categoryId:        number;
-    name:              string;
-    sku?:              string;
-    barcode?:          string;
-    price:             number;
-    wholesalePrice?:   number;
-    costPrice:         number;
-    unit:              string;
-    imageUri?:         string;
-    stockQty:          number;
-    lowStockThreshold: number;
-    expiryDate?:       string;
-    labelText?:        string;
-    sortOrder:         number;
-  }, actorName?: string): Promise<Product> => {
+  createProduct: async (
+    branchId: number,
+    body: {
+      categoryId: number;
+      name: string;
+      sku?: string;
+      barcode?: string;
+      price: number;
+      wholesalePrice?: number;
+      costPrice: number;
+      unit: string;
+      imageUri?: string;
+      stockQty: number;
+      lowStockThreshold: number;
+      expiryDate?: string;
+      labelText?: string;
+      sortOrder: number;
+    },
+    actorName?: string,
+  ): Promise<Product> => {
     const db = await getDb();
     let productId = 0;
     await db.withTransactionAsync(async () => {
@@ -311,18 +372,37 @@ export const productsRepo = {
       const { lastInsertRowId } = await db.runAsync(
         `INSERT INTO products (category_id, name, sku, barcode, price, wholesale_price, cost_price, unit, image_uri, stock_qty, low_stock_threshold, expiry_date, label_text, is_active, sort_order, sync_uuid)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 5, ?, ?, 1, ?, ?)`,
-        [body.categoryId, body.name, codes.sku, codes.barcode, body.price,
-         body.wholesalePrice ?? null, body.costPrice, body.unit, body.imageUri ?? null,
-         body.expiryDate ?? null, body.labelText ?? null, body.sortOrder, Crypto.randomUUID()]
+        [
+          body.categoryId,
+          body.name,
+          codes.sku,
+          codes.barcode,
+          body.price,
+          body.wholesalePrice ?? null,
+          body.costPrice,
+          body.unit,
+          body.imageUri ?? null,
+          body.expiryDate ?? null,
+          body.labelText ?? null,
+          body.sortOrder,
+          Crypto.randomUUID(),
+        ],
       );
       productId = lastInsertRowId;
 
-      const branches = await db.getAllAsync<{ id: number }>("SELECT id FROM branches");
+      const branches = await db.getAllAsync<{ id: number }>(
+        "SELECT id FROM branches",
+      );
       for (const b of branches) {
         const isTarget = b.id === branchId;
         await db.runAsync(
           "INSERT INTO branch_stock (branch_id, product_id, stock_qty, low_stock_threshold) VALUES (?, ?, ?, ?)",
-          [b.id, productId, isTarget ? body.stockQty : 0, isTarget ? body.lowStockThreshold : 5]
+          [
+            b.id,
+            productId,
+            isTarget ? body.stockQty : 0,
+            isTarget ? body.lowStockThreshold : 5,
+          ],
         );
       }
 
@@ -336,73 +416,131 @@ export const productsRepo = {
       // branch_stock on the wrong number — which then overwrites this
       // device's own correct value on the next pull.
       if (body.stockQty !== 0) {
-        const branch = await db.getFirstAsync<{ name: string }>("SELECT name FROM branches WHERE id = ?", [branchId]);
+        const branch = await db.getFirstAsync<{ name: string }>(
+          "SELECT name FROM branches WHERE id = ?",
+          [branchId],
+        );
         await db.runAsync(
           `INSERT INTO stock_movements (product_id, product_name, change_qty, reason, resulting_stock_qty, branch_id, branch_name, actor_name, sync_uuid, created_at)
            VALUES (?, ?, ?, 'Restock', ?, ?, ?, ?, ?, ?)`,
-          [productId, body.name, body.stockQty, body.stockQty, branchId, branch?.name ?? null,
-           actorName ?? null, Crypto.randomUUID(), new Date().toISOString()]
+          [
+            productId,
+            body.name,
+            body.stockQty,
+            body.stockQty,
+            branchId,
+            branch?.name ?? null,
+            actorName ?? null,
+            Crypto.randomUUID(),
+            new Date().toISOString(),
+          ],
         );
       }
     });
     return {
-      id: productId, categoryId: body.categoryId, name: body.name,
-      sku: body.sku, barcode: body.barcode, price: body.price, wholesalePrice: body.wholesalePrice,
-      costPrice: body.costPrice, unit: body.unit,
-      imageUri: body.imageUri, stockQty: body.stockQty, lowStockThreshold: body.lowStockThreshold,
-      expiryDate: body.expiryDate, labelText: body.labelText, isActive: true, sortOrder: body.sortOrder,
+      id: productId,
+      categoryId: body.categoryId,
+      name: body.name,
+      sku: body.sku,
+      barcode: body.barcode,
+      price: body.price,
+      wholesalePrice: body.wholesalePrice,
+      costPrice: body.costPrice,
+      unit: body.unit,
+      imageUri: body.imageUri,
+      stockQty: body.stockQty,
+      lowStockThreshold: body.lowStockThreshold,
+      expiryDate: body.expiryDate,
+      labelText: body.labelText,
+      isActive: true,
+      sortOrder: body.sortOrder,
     };
   },
 
   // stockQty/lowStockThreshold here apply to `branchId` only — other
   // branches' stock is untouched (adjust those via Inventory/Transfer).
-  updateProduct: async (id: number, branchId: number, body: {
-    name:              string;
-    sku?:              string;
-    barcode?:          string;
-    price:             number;
-    wholesalePrice?:   number;
-    costPrice:         number;
-    unit:              string;
-    imageUri?:         string;
-    stockQty:          number;
-    lowStockThreshold: number;
-    expiryDate?:       string;
-    labelText?:        string;
-    isActive:          boolean;
-    sortOrder:         number;
-  }, actorName?: string) => {
+  updateProduct: async (
+    id: number,
+    branchId: number,
+    body: {
+      name: string;
+      sku?: string;
+      barcode?: string;
+      price: number;
+      wholesalePrice?: number;
+      costPrice: number;
+      unit: string;
+      imageUri?: string;
+      stockQty: number;
+      lowStockThreshold: number;
+      expiryDate?: string;
+      labelText?: string;
+      isActive: boolean;
+      sortOrder: number;
+    },
+    actorName?: string,
+  ) => {
     const db = await getDb();
     await db.withTransactionAsync(async () => {
       await db.runAsync(
+        // updated_at is what makes this edit reach the server at all: push()
+        // looks for products whose updated_at is newer than their synced_at.
+        // Without it an edit stayed on this device forever, because push()
+        // only ever considered products that had never been synced.
         `UPDATE products SET name = ?, sku = ?, barcode = ?, price = ?, wholesale_price = ?, cost_price = ?, unit = ?, image_uri = ?, expiry_date = ?, label_text = ?,
-           is_active = ?, sort_order = ?
+           is_active = ?, sort_order = ?, updated_at = datetime('now')
          WHERE id = ?`,
-        [body.name, body.sku ?? null, body.barcode ?? null, body.price, body.wholesalePrice ?? null, body.costPrice,
-         body.unit, body.imageUri ?? null, body.expiryDate ?? null, body.labelText ?? null, body.isActive ? 1 : 0, body.sortOrder, id]
+        [
+          body.name,
+          body.sku ?? null,
+          body.barcode ?? null,
+          body.price,
+          body.wholesalePrice ?? null,
+          body.costPrice,
+          body.unit,
+          body.imageUri ?? null,
+          body.expiryDate ?? null,
+          body.labelText ?? null,
+          body.isActive ? 1 : 0,
+          body.sortOrder,
+          id,
+        ],
       );
 
       // Editing the stock field here bypasses stockRepo.adjustStock, same
       // gap as createProduct's initial quantity above — record the delta
       // as a movement so it isn't invisible to the server on next push.
       const before = await db.getFirstAsync<{ stock_qty: number }>(
-        "SELECT stock_qty FROM branch_stock WHERE branch_id = ? AND product_id = ?", [branchId, id]
+        "SELECT stock_qty FROM branch_stock WHERE branch_id = ? AND product_id = ?",
+        [branchId, id],
       );
       const delta = body.stockQty - (before?.stock_qty ?? 0);
 
       await db.runAsync(
         `INSERT INTO branch_stock (branch_id, product_id, stock_qty, low_stock_threshold) VALUES (?, ?, ?, ?)
          ON CONFLICT(branch_id, product_id) DO UPDATE SET stock_qty = excluded.stock_qty, low_stock_threshold = excluded.low_stock_threshold`,
-        [branchId, id, body.stockQty, body.lowStockThreshold]
+        [branchId, id, body.stockQty, body.lowStockThreshold],
       );
 
       if (delta !== 0) {
-        const branch = await db.getFirstAsync<{ name: string }>("SELECT name FROM branches WHERE id = ?", [branchId]);
+        const branch = await db.getFirstAsync<{ name: string }>(
+          "SELECT name FROM branches WHERE id = ?",
+          [branchId],
+        );
         await db.runAsync(
           `INSERT INTO stock_movements (product_id, product_name, change_qty, reason, resulting_stock_qty, branch_id, branch_name, actor_name, sync_uuid, created_at)
            VALUES (?, ?, ?, 'Correction', ?, ?, ?, ?, ?, ?)`,
-          [id, body.name, delta, body.stockQty, branchId, branch?.name ?? null,
-           actorName ?? null, Crypto.randomUUID(), new Date().toISOString()]
+          [
+            id,
+            body.name,
+            delta,
+            body.stockQty,
+            branchId,
+            branch?.name ?? null,
+            actorName ?? null,
+            Crypto.randomUUID(),
+            new Date().toISOString(),
+          ],
         );
       }
     });
@@ -426,11 +564,13 @@ export const productsRepo = {
       await db.runAsync("DELETE FROM branch_stock WHERE product_id = ?", [id]);
 
       const row = await db.getFirstAsync<{ server_id: string | null }>(
-        "SELECT server_id FROM products WHERE id = ?", [id]
+        "SELECT server_id FROM products WHERE id = ?",
+        [id],
       );
       if (row?.server_id) {
         await db.runAsync(
-          "UPDATE products SET is_active = 0, pending_sync = 1 WHERE id = ?", [id]
+          "UPDATE products SET is_active = 0, pending_sync = 1 WHERE id = ?",
+          [id],
         );
       } else {
         await db.runAsync("DELETE FROM products WHERE id = ?", [id]);

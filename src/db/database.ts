@@ -88,6 +88,11 @@ CREATE TABLE IF NOT EXISTS products (
   -- back — see productsRepo.deleteProduct and syncRepo's pending_sync = 0
   -- guards.
   pending_sync       INTEGER NOT NULL DEFAULT 0,
+  -- updated_at is stamped on every local edit; synced_at when that edit
+  -- reached the server. updated_at > synced_at means "this device has an
+  -- edit the server has not seen" -- see syncRepo.push().
+  updated_at         TEXT,
+  synced_at          TEXT,
   created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -402,32 +407,32 @@ const DEFAULT_ADMIN_PASSWORD = "admin123";
 
 const seed = async (db: SQLite.SQLiteDatabase) => {
   const userCount = await db.getFirstAsync<{ count: number }>(
-    "SELECT COUNT(*) as count FROM users"
+    "SELECT COUNT(*) as count FROM users",
   );
   if ((userCount?.count ?? 0) === 0) {
     const hash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
     await db.runAsync(
       "INSERT INTO users (name, password_hash, role, is_active) VALUES (?, ?, 'Admin', 1)",
-      [DEFAULT_ADMIN_NAME, hash]
+      [DEFAULT_ADMIN_NAME, hash],
     );
   }
 
   const shopRow = await db.getFirstAsync<{ id: number }>(
-    "SELECT id FROM shop_settings WHERE id = 1"
+    "SELECT id FROM shop_settings WHERE id = 1",
   );
   if (!shopRow) {
     await db.runAsync(
-      "INSERT INTO shop_settings (id, name, tax_percent, currency) VALUES (1, 'My Shop', 0, '$')"
+      "INSERT INTO shop_settings (id, name, tax_percent, currency) VALUES (1, 'My Shop', 0, '$')",
     );
   }
 
   const categoryCount = await db.getFirstAsync<{ count: number }>(
-    "SELECT COUNT(*) as count FROM categories"
+    "SELECT COUNT(*) as count FROM categories",
   );
   if ((categoryCount?.count ?? 0) === 0) {
     await db.runAsync(
       "INSERT INTO categories (name, sort_order, is_active, sync_uuid) VALUES ('General', 0, 1, ?)",
-      [Crypto.randomUUID()]
+      [Crypto.randomUUID()],
     );
   }
 };
@@ -435,28 +440,70 @@ const seed = async (db: SQLite.SQLiteDatabase) => {
 // Lightweight migration for columns added after a device's database already
 // existed — CREATE TABLE IF NOT EXISTS above only helps fresh installs.
 const ensureColumn = async (
-  db: SQLite.SQLiteDatabase, table: string, column: string, definition: string
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string,
+  definition: string,
 ) => {
-  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
-  if (!columns.some(c => c.name === column)) {
-    await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  const columns = await db.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(${table})`,
+  );
+  if (!columns.some((c) => c.name === column)) {
+    await db.execAsync(
+      `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
+    );
   }
 };
 
 const migrate = async (db: SQLite.SQLiteDatabase) => {
   await ensureColumn(db, "products", "cost_price", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(db, "products", "image_uri", "TEXT");
-  await ensureColumn(db, "products", "low_stock_threshold", "INTEGER NOT NULL DEFAULT 5");
+  await ensureColumn(
+    db,
+    "products",
+    "low_stock_threshold",
+    "INTEGER NOT NULL DEFAULT 5",
+  );
   await ensureColumn(db, "sale_items", "discount", "REAL NOT NULL DEFAULT 0");
-  await ensureColumn(db, "sale_items", "refunded_qty", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(
+    db,
+    "sale_items",
+    "refunded_qty",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
   await ensureColumn(db, "sales", "customer_id", "INTEGER");
   await ensureColumn(db, "sales", "customer_name", "TEXT");
   await ensureColumn(db, "sales", "customer_phone", "TEXT");
-  await ensureColumn(db, "sales", "points_earned", "INTEGER NOT NULL DEFAULT 0");
-  await ensureColumn(db, "sales", "points_redeemed", "INTEGER NOT NULL DEFAULT 0");
-  await ensureColumn(db, "shop_settings", "loyalty_enabled", "INTEGER NOT NULL DEFAULT 0");
-  await ensureColumn(db, "shop_settings", "loyalty_earn_rate", "REAL NOT NULL DEFAULT 1");
-  await ensureColumn(db, "shop_settings", "loyalty_redeem_rate", "REAL NOT NULL DEFAULT 0.01");
+  await ensureColumn(
+    db,
+    "sales",
+    "points_earned",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  await ensureColumn(
+    db,
+    "sales",
+    "points_redeemed",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "loyalty_enabled",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "loyalty_earn_rate",
+    "REAL NOT NULL DEFAULT 1",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "loyalty_redeem_rate",
+    "REAL NOT NULL DEFAULT 0.01",
+  );
   await ensureColumn(db, "sales", "shift_id", "INTEGER");
   await ensureColumn(db, "refunds", "shift_id", "INTEGER");
   await ensureColumn(db, "stock_movements", "branch_id", "INTEGER");
@@ -483,15 +530,63 @@ const migrate = async (db: SQLite.SQLiteDatabase) => {
   // touched it: "no such column: pending_sync", which reached the shopkeeper
   // as CONNECT_FAILED. Existing rows default to 0, which is correct — a
   // product sitting on the device has not been deleted.
-  await ensureColumn(db, "products", "pending_sync", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(
+    db,
+    "products",
+    "pending_sync",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
 
-  await ensureColumn(db, "shop_settings", "auto_barcode_enabled", "INTEGER NOT NULL DEFAULT 0");
-  await ensureColumn(db, "shop_settings", "auto_barcode_prefix", "TEXT NOT NULL DEFAULT '2'");
-  await ensureColumn(db, "shop_settings", "auto_barcode_next", "INTEGER NOT NULL DEFAULT 1");
-  await ensureColumn(db, "shop_settings", "auto_sku_enabled", "INTEGER NOT NULL DEFAULT 0");
-  await ensureColumn(db, "shop_settings", "auto_sku_prefix", "TEXT NOT NULL DEFAULT 'SKU'");
-  await ensureColumn(db, "shop_settings", "auto_sku_next", "INTEGER NOT NULL DEFAULT 1");
-  await ensureColumn(db, "shop_settings", "auto_code_till", "INTEGER NOT NULL DEFAULT 1");
+  // When this device last edited a product, and when that edit last reached
+  // the server. push() sends a product whose updated_at is newer than its
+  // synced_at -- which is how an EDIT gets pushed at all. Before these
+  // existed push() only ever looked at products with no server_id, so
+  // creating a product synced and editing one silently did not.
+  await ensureColumn(db, "products", "updated_at", "TEXT");
+  await ensureColumn(db, "products", "synced_at", "TEXT");
+
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "auto_barcode_enabled",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "auto_barcode_prefix",
+    "TEXT NOT NULL DEFAULT '2'",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "auto_barcode_next",
+    "INTEGER NOT NULL DEFAULT 1",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "auto_sku_enabled",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "auto_sku_prefix",
+    "TEXT NOT NULL DEFAULT 'SKU'",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "auto_sku_next",
+    "INTEGER NOT NULL DEFAULT 1",
+  );
+  await ensureColumn(
+    db,
+    "shop_settings",
+    "auto_code_till",
+    "INTEGER NOT NULL DEFAULT 1",
+  );
   await ensureColumn(db, "sales", "sync_uuid", "TEXT");
   await ensureColumn(db, "sales", "synced_at", "TEXT");
   await ensureColumn(db, "stock_movements", "sync_uuid", "TEXT");
@@ -555,42 +650,45 @@ const migrate = async (db: SQLite.SQLiteDatabase) => {
 // so multi-branch turns on without losing or hiding any existing data.
 const backfillBranches = async (db: SQLite.SQLiteDatabase) => {
   const branchCount = await db.getFirstAsync<{ count: number }>(
-    "SELECT COUNT(*) as count FROM branches"
+    "SELECT COUNT(*) as count FROM branches",
   );
   if ((branchCount?.count ?? 0) === 0) {
     await db.runAsync(
       "INSERT INTO branches (name, is_active, sync_uuid) VALUES ('Main Branch', 1, ?)",
-      [Crypto.randomUUID()]
+      [Crypto.randomUUID()],
     );
   }
 
   const defaultBranch = await db.getFirstAsync<{ id: number; name: string }>(
-    "SELECT id, name FROM branches ORDER BY id LIMIT 1"
+    "SELECT id, name FROM branches ORDER BY id LIMIT 1",
   );
   if (!defaultBranch) return;
 
-  const products = await db.getAllAsync<{ id: number; stock_qty: number; low_stock_threshold: number }>(
-    "SELECT id, stock_qty, low_stock_threshold FROM products"
-  );
+  const products = await db.getAllAsync<{
+    id: number;
+    stock_qty: number;
+    low_stock_threshold: number;
+  }>("SELECT id, stock_qty, low_stock_threshold FROM products");
   for (const p of products) {
     const existing = await db.getFirstAsync<{ id: number }>(
-      "SELECT id FROM branch_stock WHERE branch_id = ? AND product_id = ?", [defaultBranch.id, p.id]
+      "SELECT id FROM branch_stock WHERE branch_id = ? AND product_id = ?",
+      [defaultBranch.id, p.id],
     );
     if (!existing) {
       await db.runAsync(
         "INSERT INTO branch_stock (branch_id, product_id, stock_qty, low_stock_threshold) VALUES (?, ?, ?, ?)",
-        [defaultBranch.id, p.id, p.stock_qty, p.low_stock_threshold]
+        [defaultBranch.id, p.id, p.stock_qty, p.low_stock_threshold],
       );
     }
   }
 
   await db.runAsync(
     "UPDATE sales SET branch_id = ?, branch_name = ? WHERE branch_id IS NULL",
-    [defaultBranch.id, defaultBranch.name]
+    [defaultBranch.id, defaultBranch.name],
   );
   await db.runAsync(
     "UPDATE stock_movements SET branch_id = ?, branch_name = ? WHERE branch_id IS NULL",
-    [defaultBranch.id, defaultBranch.name]
+    [defaultBranch.id, defaultBranch.name],
   );
 };
 
@@ -621,16 +719,24 @@ const backfillBranches = async (db: SQLite.SQLiteDatabase) => {
 const backfillSyncUuids = async (db: SQLite.SQLiteDatabase) => {
   for (const table of ["categories", "products"] as const) {
     const rows = await db.getAllAsync<{ id: number; server_id: string | null }>(
-      `SELECT id, server_id FROM ${table} WHERE sync_uuid IS NULL`
+      `SELECT id, server_id FROM ${table} WHERE sync_uuid IS NULL`,
     );
     for (const r of rows) {
-      await db.runAsync(`UPDATE ${table} SET sync_uuid = ? WHERE id = ?`, [r.server_id ?? Crypto.randomUUID(), r.id]);
+      await db.runAsync(`UPDATE ${table} SET sync_uuid = ? WHERE id = ?`, [
+        r.server_id ?? Crypto.randomUUID(),
+        r.id,
+      ]);
     }
   }
   for (const table of ["sales", "stock_movements"] as const) {
-    const rows = await db.getAllAsync<{ id: number }>(`SELECT id FROM ${table} WHERE sync_uuid IS NULL`);
+    const rows = await db.getAllAsync<{ id: number }>(
+      `SELECT id FROM ${table} WHERE sync_uuid IS NULL`,
+    );
     for (const r of rows) {
-      await db.runAsync(`UPDATE ${table} SET sync_uuid = ? WHERE id = ?`, [Crypto.randomUUID(), r.id]);
+      await db.runAsync(`UPDATE ${table} SET sync_uuid = ? WHERE id = ?`, [
+        Crypto.randomUUID(),
+        r.id,
+      ]);
     }
   }
 };
@@ -647,10 +753,13 @@ const backfillSyncUuids = async (db: SQLite.SQLiteDatabase) => {
 // old manual "attach" button used to require a tap for.
 const backfillBranchSyncUuids = async (db: SQLite.SQLiteDatabase) => {
   const rows = await db.getAllAsync<{ id: number; server_id: string | null }>(
-    "SELECT id, server_id FROM branches WHERE sync_uuid IS NULL"
+    "SELECT id, server_id FROM branches WHERE sync_uuid IS NULL",
   );
   for (const r of rows) {
-    await db.runAsync("UPDATE branches SET sync_uuid = ? WHERE id = ?", [r.server_id ?? Crypto.randomUUID(), r.id]);
+    await db.runAsync("UPDATE branches SET sync_uuid = ? WHERE id = ?", [
+      r.server_id ?? Crypto.randomUUID(),
+      r.id,
+    ]);
   }
 };
 
