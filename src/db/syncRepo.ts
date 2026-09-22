@@ -1359,6 +1359,34 @@ export const syncRepo = {
 
   // Convenience for the "Sync Now" button — push first (so this device's
   // own changes are on the server before pulling), then pull.
+  /**
+   * Re-fetches every branch's history from the beginning and rebuilds the
+   * All Branches mirror.
+   *
+   * The mirror is filled by the ordinary pull, which only ever asks for what
+   * changed since the last one — so any sale it missed is missed for good.
+   * Two ways that happens: this device pulled before its admin key was set
+   * (the mirror is skipped entirely without one, while the watermark still
+   * moves), or a restored backup cleared the mirror tables. Either way the
+   * history is simply absent and no amount of ordinary syncing brings it
+   * back.
+   *
+   * Winding the watermark back to the beginning is what does. Everything
+   * else the pull touches is an upsert keyed on server_id, so re-reading
+   * from the start rewrites the same rows with the same values rather than
+   * duplicating them; the mirror inserts skip anything already held.
+   */
+  rebuildRemoteHistory: async (): Promise<number> => {
+    const db = await getDb();
+    await db.runAsync(
+      "UPDATE sync_config SET last_pull_at = NULL WHERE id = 1",
+    );
+    const result = await syncRepo.pull();
+    return (
+      result.salesReceived + result.movementsReceived + result.expensesReceived
+    );
+  },
+
   syncNow: async (): Promise<{
     salesPushed: number;
     movementsPushed: number;

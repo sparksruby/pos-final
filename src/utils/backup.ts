@@ -27,17 +27,21 @@ type Row = Record<string, unknown>;
 // is excluded on purpose: restoring explicit ids (see restoreTable below)
 // makes SQLite recompute it on its own, and writing it manually risks
 // setting it to a stale value if this list ever drifts from the schema.
-const listTables = async (db: Awaited<ReturnType<typeof getDb>>): Promise<TableName[]> => {
+const listTables = async (
+  db: Awaited<ReturnType<typeof getDb>>,
+): Promise<TableName[]> => {
   const rows = await db.getAllAsync<{ name: string }>(
     `SELECT name FROM sqlite_master
-     WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'`
+     WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'`,
   );
-  return rows.map(r => r.name);
+  return rows.map((r) => r.name);
 };
 
 const readableName = (uri: string) => uri.split("/").pop() || `${Date.now()}`;
 
-export const exportBackup = async (method: "share" | "save" = "share"): Promise<boolean> => {
+export const exportBackup = async (
+  method: "share" | "save" = "share",
+): Promise<boolean> => {
   const db = await getDb();
   const tables = await listTables(db);
 
@@ -54,7 +58,9 @@ export const exportBackup = async (method: "share" | "save" = "share"): Promise<
         const info = await FileSystem.getInfoAsync(uri);
         if (!info.exists) continue; // image_uri points at a file that's already gone — export the row without one rather than fail the whole backup
         const name = readableName(uri);
-        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
         zip.file(`images/${name}`, base64, { base64: true });
         row.image_uri = `${IMAGE_MARKER}${name}`;
       }
@@ -63,18 +69,26 @@ export const exportBackup = async (method: "share" | "save" = "share"): Promise<
     data[table] = rows;
   }
 
-  zip.file("backup.json", JSON.stringify({
-    version:    BACKUP_VERSION,
-    exportedAt: new Date().toISOString(),
-    appName:    "Retail POS",
-    tables:     data,
-  }));
+  zip.file(
+    "backup.json",
+    JSON.stringify({
+      version: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      appName: "Retail POS",
+      tables: data,
+    }),
+  );
 
-  const zipBase64 = await zip.generateAsync({ type: "base64", compression: "DEFLATE" });
+  const zipBase64 = await zip.generateAsync({
+    type: "base64",
+    compression: "DEFLATE",
+  });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const fileName = `retail-pos-backup-${stamp}.zip`;
   const uri = `${FileSystem.cacheDirectory}${fileName}`;
-  await FileSystem.writeAsStringAsync(uri, zipBase64, { encoding: FileSystem.EncodingType.Base64 });
+  await FileSystem.writeAsStringAsync(uri, zipBase64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
 
   if (method === "save") {
     return saveToDevice(uri, "application/zip", fileName);
@@ -82,9 +96,9 @@ export const exportBackup = async (method: "share" | "save" = "share"): Promise<
 
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, {
-      mimeType:    "application/zip",
+      mimeType: "application/zip",
       dialogTitle: "Export Backup",
-      UTI:         "com.pkware.zip-archive",
+      UTI: "com.pkware.zip-archive",
     });
   }
   return true;
@@ -98,19 +112,23 @@ export const exportBackup = async (method: "share" | "save" = "share"): Promise<
 // keep their original ids, including for tables with rows added after
 // their referenced parent row in the backup's own key order).
 export const importBackup = async (zipUri: string): Promise<void> => {
-  const zipBase64 = await FileSystem.readAsStringAsync(zipUri, { encoding: FileSystem.EncodingType.Base64 });
+  const zipBase64 = await FileSystem.readAsStringAsync(zipUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
   const zip = await JSZip.loadAsync(zipBase64, { base64: true });
 
   const manifestFile = zip.file("backup.json");
   if (!manifestFile) throw new Error("INVALID_BACKUP_FILE");
   const manifest = JSON.parse(await manifestFile.async("string")) as {
     version: number;
-    tables:  Record<TableName, Row[]>;
+    tables: Record<TableName, Row[]>;
   };
-  if (manifest.version > BACKUP_VERSION) throw new Error("BACKUP_VERSION_TOO_NEW");
+  if (manifest.version > BACKUP_VERSION)
+    throw new Error("BACKUP_VERSION_TOO_NEW");
 
   const info = await FileSystem.getInfoAsync(IMAGE_DIR);
-  if (!info.exists) await FileSystem.makeDirectoryAsync(IMAGE_DIR, { intermediates: true });
+  if (!info.exists)
+    await FileSystem.makeDirectoryAsync(IMAGE_DIR, { intermediates: true });
 
   const productRows = manifest.tables.products ?? [];
   for (const row of productRows) {
@@ -118,10 +136,15 @@ export const importBackup = async (zipUri: string): Promise<void> => {
     if (typeof uri !== "string" || !uri.startsWith(IMAGE_MARKER)) continue;
     const name = uri.slice(IMAGE_MARKER.length);
     const entry = zip.file(`images/${name}`);
-    if (!entry) { row.image_uri = null; continue; }
+    if (!entry) {
+      row.image_uri = null;
+      continue;
+    }
     const base64 = await entry.async("base64");
     const dest = `${IMAGE_DIR}${Date.now()}-${name}`;
-    await FileSystem.writeAsStringAsync(dest, base64, { encoding: FileSystem.EncodingType.Base64 });
+    await FileSystem.writeAsStringAsync(dest, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
     row.image_uri = dest;
   }
 
@@ -134,7 +157,16 @@ export const importBackup = async (zipUri: string): Promise<void> => {
       // Delete first, all tables, before inserting anything — a table that
       // references another (e.g. sale_items -> sales) would otherwise see
       // its own still-present old rows collide with restored ids.
+      //
+      // Only tables the backup actually carries, though. Clearing one it
+      // says nothing about destroys live data the file never claimed to
+      // hold — and for the All Branches mirror (remote_sales and friends)
+      // that loss is permanent, because the next pull asks the server only
+      // for what changed since the last one and will never resend a sale it
+      // already sent. A backup taken on a device that had no mirror would
+      // silently wipe the mirror on the device it was restored to.
       for (const table of tables) {
+        if (!manifest.tables[table]) continue;
         await db.runAsync(`DELETE FROM ${table}`);
       }
       for (const table of tables) {
@@ -144,7 +176,10 @@ export const importBackup = async (zipUri: string): Promise<void> => {
         const placeholders = columns.map(() => "?").join(", ");
         const sql = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`;
         for (const row of rows) {
-          await db.runAsync(sql, columns.map(c => row[c] as any));
+          await db.runAsync(
+            sql,
+            columns.map((c) => row[c] as any),
+          );
         }
       }
 
@@ -157,8 +192,12 @@ export const importBackup = async (zipUri: string): Promise<void> => {
       // silently excluded rather than re-sent. Reusing server_id as the
       // sync_uuid (same trick backfillSyncUuids/backfillBranchSyncUuids
       // use) keeps it pointed at the exact row the server already knows.
-      await db.runAsync("UPDATE categories SET sync_uuid = server_id WHERE sync_uuid IS NULL AND server_id IS NOT NULL");
-      await db.runAsync("UPDATE products SET sync_uuid = server_id WHERE sync_uuid IS NULL AND server_id IS NOT NULL");
+      await db.runAsync(
+        "UPDATE categories SET sync_uuid = server_id WHERE sync_uuid IS NULL AND server_id IS NOT NULL",
+      );
+      await db.runAsync(
+        "UPDATE products SET sync_uuid = server_id WHERE sync_uuid IS NULL AND server_id IS NOT NULL",
+      );
 
       // server_id/synced_at mark a row as already pushed to whatever server
       // the *exporting* device was connected to. Restored verbatim, they'd
@@ -178,7 +217,7 @@ export const importBackup = async (zipUri: string): Promise<void> => {
       // The restoring device shouldn't silently inherit another device's
       // server connection/credentials — force an explicit reconnect.
       await db.runAsync(
-        "UPDATE sync_config SET server_url = NULL, device_api_key = NULL, bound_branch_id = NULL, last_pull_at = NULL, last_push_at = NULL, admin_key = NULL WHERE id = 1"
+        "UPDATE sync_config SET server_url = NULL, device_api_key = NULL, bound_branch_id = NULL, last_pull_at = NULL, last_push_at = NULL, admin_key = NULL WHERE id = 1",
       );
     });
   } finally {

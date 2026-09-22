@@ -1,18 +1,35 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, TouchableOpacity, TextInput, Modal,
-  StyleSheet, SafeAreaView, ScrollView,
-  ActivityIndicator, Platform, StatusBar,
+  View,
+  Text,
+  TouchableOpacity,
+  TextInput,
+  Modal,
+  StyleSheet,
+  SafeAreaView,
+  ScrollView,
+  ActivityIndicator,
+  Platform,
+  StatusBar,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, router } from "expo-router";
-import { syncRepo, type RemoteSale, type RemoteStockMovement, type RemoteExpense } from "../../src/db/syncRepo";
-import { productsRepo, type AdminProductStockRow } from "../../src/db/productsRepo";
+import {
+  syncRepo,
+  type RemoteSale,
+  type RemoteStockMovement,
+  type RemoteExpense,
+} from "../../src/db/syncRepo";
+import {
+  productsRepo,
+  type AdminProductStockRow,
+} from "../../src/db/productsRepo";
 import { useSyncStore } from "../../src/store/syncStore";
 import { useAuthStore } from "../../src/store/authStore";
 import { useBranchStore } from "../../src/store/branchStore";
 import { useTheme } from "../../src/context/ThemeContext";
 import { useLanguage } from "../../src/context/LanguageContext";
+import { useAlert } from "@/context/AlertContext";
 import { useResponsive } from "../../src/hooks/useResponsive";
 import { isAdmin } from "../../src/utils/permissions";
 import { F, R, Shadow, ThemeColors } from "../../src/theme";
@@ -43,59 +60,107 @@ export default function SyncOverviewScreen() {
   // RemoteStockMovement), not a local branch id, so filtering compares
   // names; products' branchStocks do carry the real local branchId.
   const [branchFilter, setBranchFilter] = useState<number | null>(null);
-  const branchFilterName = branchFilter != null ? branches.find(b => b.id === branchFilter)?.name : null;
+  const branchFilterName =
+    branchFilter != null
+      ? branches.find((b) => b.id === branchFilter)?.name
+      : null;
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
   const [tabPickerOpen, setTabPickerOpen] = useState(false);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
 
-  const branchScopedSales = branchFilterName == null ? sales : sales.filter(s => s.branchName === branchFilterName);
-  const filteredSales = query.length === 0 ? branchScopedSales : branchScopedSales.filter(sale =>
-    sale.items.some(item => item.productName.toLowerCase().includes(query)) ||
-    (sale.cashierName ?? "").toLowerCase().includes(query) ||
-    (sale.customerName ?? "").toLowerCase().includes(query)
-  );
+  const branchScopedSales =
+    branchFilterName == null
+      ? sales
+      : sales.filter((s) => s.branchName === branchFilterName);
+  const filteredSales =
+    query.length === 0
+      ? branchScopedSales
+      : branchScopedSales.filter(
+          (sale) =>
+            sale.items.some((item) =>
+              item.productName.toLowerCase().includes(query),
+            ) ||
+            (sale.cashierName ?? "").toLowerCase().includes(query) ||
+            (sale.customerName ?? "").toLowerCase().includes(query),
+        );
 
-  const branchScopedMovements = branchFilterName == null ? movements : movements.filter(m => m.branchName === branchFilterName);
-  const filteredMovements = query.length === 0 ? branchScopedMovements : branchScopedMovements.filter(m =>
-    m.productName.toLowerCase().includes(query) ||
-    m.reason.toLowerCase().includes(query) ||
-    (m.actorName ?? "").toLowerCase().includes(query)
-  );
+  const branchScopedMovements =
+    branchFilterName == null
+      ? movements
+      : movements.filter((m) => m.branchName === branchFilterName);
+  const filteredMovements =
+    query.length === 0
+      ? branchScopedMovements
+      : branchScopedMovements.filter(
+          (m) =>
+            m.productName.toLowerCase().includes(query) ||
+            m.reason.toLowerCase().includes(query) ||
+            (m.actorName ?? "").toLowerCase().includes(query),
+        );
 
-  const branchScopedProductRows = branchFilter == null
-    ? productRows
-    : productRows.map(p => ({ ...p, branchStocks: p.branchStocks.filter(bs => bs.branchId === branchFilter) }));
-  const filteredProductRows = query.length === 0 ? branchScopedProductRows : branchScopedProductRows.filter(p =>
-    p.name.toLowerCase().includes(query) || p.categoryName.toLowerCase().includes(query)
-  );
+  const branchScopedProductRows =
+    branchFilter == null
+      ? productRows
+      : productRows.map((p) => ({
+          ...p,
+          branchStocks: p.branchStocks.filter(
+            (bs) => bs.branchId === branchFilter,
+          ),
+        }));
+  const filteredProductRows =
+    query.length === 0
+      ? branchScopedProductRows
+      : branchScopedProductRows.filter(
+          (p) =>
+            p.name.toLowerCase().includes(query) ||
+            p.categoryName.toLowerCase().includes(query),
+        );
 
-  const branchScopedExpenses = branchFilterName == null ? expenses : expenses.filter(e => e.branchName === branchFilterName);
-  const filteredExpenses = query.length === 0 ? branchScopedExpenses : branchScopedExpenses.filter(e =>
-    e.category.toLowerCase().includes(query) ||
-    (e.description ?? "").toLowerCase().includes(query) ||
-    (e.actorName ?? "").toLowerCase().includes(query)
-  );
+  const branchScopedExpenses =
+    branchFilterName == null
+      ? expenses
+      : expenses.filter((e) => e.branchName === branchFilterName);
+  const filteredExpenses =
+    query.length === 0
+      ? branchScopedExpenses
+      : branchScopedExpenses.filter(
+          (e) =>
+            e.category.toLowerCase().includes(query) ||
+            (e.description ?? "").toLowerCase().includes(query) ||
+            (e.actorName ?? "").toLowerCase().includes(query),
+        );
 
   // Render only a growing window of whichever list is on-screen — the
   // active tab's own filtered array can already run into the hundreds.
   const PAGE_SIZE = 30;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [tab, branchFilter, query]);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [tab, branchFilter, query]);
   const visibleSales = filteredSales.slice(0, visibleCount);
   const visibleMovements = filteredMovements.slice(0, visibleCount);
   const visibleProductRows = filteredProductRows.slice(0, visibleCount);
   const visibleExpenses = filteredExpenses.slice(0, visibleCount);
-  const activeTotal = tab === "sales" ? filteredSales.length
-    : tab === "movements" ? filteredMovements.length
-    : tab === "products" ? filteredProductRows.length
-    : filteredExpenses.length;
+  const activeTotal =
+    tab === "sales"
+      ? filteredSales.length
+      : tab === "movements"
+        ? filteredMovements.length
+        : tab === "products"
+          ? filteredProductRows.length
+          : filteredExpenses.length;
 
   const tabLabels: Record<Tab, string> = {
-    sales: t("syncOverview.sales"), movements: t("syncOverview.movements"),
-    products: t("syncOverview.products"), expenses: t("expenses.title"),
+    sales: t("syncOverview.sales"),
+    movements: t("syncOverview.movements"),
+    products: t("syncOverview.products"),
+    expenses: t("expenses.title"),
   };
-  const branchFilterLabel = branchFilter == null ? t("reports.allBranches") : (branchFilterName ?? t("reports.allBranches"));
+  const branchFilterLabel =
+    branchFilter == null
+      ? t("reports.allBranches")
+      : (branchFilterName ?? t("reports.allBranches"));
 
   const load = async () => {
     if (!currentBranchId) return;
@@ -120,11 +185,39 @@ export default function SyncOverviewScreen() {
     }
   };
 
-  useEffect(() => { load(); }, [currentBranchId]);
+  useEffect(() => {
+    load();
+  }, [currentBranchId]);
 
   const handleRefresh = async () => {
     await syncNow();
     await load();
+  };
+
+  // For when the history is missing rather than merely stale — see
+  // syncRepo.rebuildRemoteHistory. An ordinary refresh cannot recover it,
+  // because the server is only ever asked for what changed since last time.
+  const { alert } = useAlert();
+  const [isRebuilding, setIsRebuilding] = useState(false);
+  const handleRebuild = () => {
+    alert(t("syncOverview.rebuildTitle"), t("syncOverview.rebuildBody"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("syncOverview.rebuildAction"),
+        onPress: async () => {
+          setIsRebuilding(true);
+          try {
+            const received = await syncRepo.rebuildRemoteHistory();
+            await load();
+            alert(t("syncOverview.rebuildDone", { count: received }));
+          } catch (e: any) {
+            alert(t("common.error"), e?.message ?? "");
+          } finally {
+            setIsRebuilding(false);
+          }
+        },
+      },
+    ]);
   };
 
   if (!isAdmin(user)) return <Redirect href="/(pos)/" />;
@@ -138,11 +231,33 @@ export default function SyncOverviewScreen() {
         <Ionicons name="albums-outline" size={17} color={C.text} />
         <Text style={s.title}>{t("syncOverview.title")}</Text>
         {isMainBranch && (
-          <TouchableOpacity style={s.refreshBtn} onPress={handleRefresh} disabled={isSyncing}>
-            {isSyncing
-              ? <ActivityIndicator color={C.accent} size="small" />
-              : <Ionicons name="sync-outline" size={16} color={C.accent} />
-            }
+          <TouchableOpacity
+            style={s.refreshBtn}
+            onPress={handleRefresh}
+            disabled={isSyncing}
+          >
+            {isSyncing ? (
+              <ActivityIndicator color={C.accent} size="small" />
+            ) : (
+              <Ionicons name="sync-outline" size={16} color={C.accent} />
+            )}
+          </TouchableOpacity>
+        )}
+        {isMainBranch && (
+          <TouchableOpacity
+            style={s.refreshBtn}
+            onPress={handleRebuild}
+            disabled={isRebuilding || isSyncing}
+          >
+            {isRebuilding ? (
+              <ActivityIndicator color={C.accent} size="small" />
+            ) : (
+              <Ionicons
+                name="cloud-download-outline"
+                size={16}
+                color={C.accent}
+              />
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -155,28 +270,59 @@ export default function SyncOverviewScreen() {
       ) : (
         <>
           <View style={s.selectorRow}>
-            <TouchableOpacity style={s.selectorBtn} onPress={() => setTabPickerOpen(true)}>
-              <Text style={s.selectorBtnText} numberOfLines={1}>{tabLabels[tab]}</Text>
+            <TouchableOpacity
+              style={s.selectorBtn}
+              onPress={() => setTabPickerOpen(true)}
+            >
+              <Text style={s.selectorBtnText} numberOfLines={1}>
+                {tabLabels[tab]}
+              </Text>
               <Ionicons name="chevron-down" size={14} color={C.muted} />
             </TouchableOpacity>
-            <TouchableOpacity style={s.selectorBtn} onPress={() => setBranchPickerOpen(true)}>
-              <Text style={s.selectorBtnText} numberOfLines={1}>{branchFilterLabel}</Text>
+            <TouchableOpacity
+              style={s.selectorBtn}
+              onPress={() => setBranchPickerOpen(true)}
+            >
+              <Text style={s.selectorBtnText} numberOfLines={1}>
+                {branchFilterLabel}
+              </Text>
               <Ionicons name="chevron-down" size={14} color={C.muted} />
             </TouchableOpacity>
           </View>
 
           {/* Tab picker */}
-          <Modal visible={tabPickerOpen} animationType="fade" transparent onRequestClose={() => setTabPickerOpen(false)}>
-            <TouchableOpacity style={s.pickerOverlay} activeOpacity={1} onPress={() => setTabPickerOpen(false)}>
+          <Modal
+            visible={tabPickerOpen}
+            animationType="fade"
+            transparent
+            onRequestClose={() => setTabPickerOpen(false)}
+          >
+            <TouchableOpacity
+              style={s.pickerOverlay}
+              activeOpacity={1}
+              onPress={() => setTabPickerOpen(false)}
+            >
               <View style={s.pickerSheet}>
-                {(Object.keys(tabLabels) as Tab[]).map(key => (
+                {(Object.keys(tabLabels) as Tab[]).map((key) => (
                   <TouchableOpacity
                     key={key}
                     style={s.pickerRow}
-                    onPress={() => { setTab(key); setTabPickerOpen(false); }}
+                    onPress={() => {
+                      setTab(key);
+                      setTabPickerOpen(false);
+                    }}
                   >
-                    <Text style={[s.pickerRowText, tab === key && s.pickerRowTextActive]}>{tabLabels[key]}</Text>
-                    {tab === key && <Ionicons name="checkmark" size={16} color={C.accent} />}
+                    <Text
+                      style={[
+                        s.pickerRowText,
+                        tab === key && s.pickerRowTextActive,
+                      ]}
+                    >
+                      {tabLabels[key]}
+                    </Text>
+                    {tab === key && (
+                      <Ionicons name="checkmark" size={16} color={C.accent} />
+                    )}
                   </TouchableOpacity>
                 ))}
               </View>
@@ -184,27 +330,59 @@ export default function SyncOverviewScreen() {
           </Modal>
 
           {/* Branch picker */}
-          <Modal visible={branchPickerOpen} animationType="fade" transparent onRequestClose={() => setBranchPickerOpen(false)}>
-            <TouchableOpacity style={s.pickerOverlay} activeOpacity={1} onPress={() => setBranchPickerOpen(false)}>
+          <Modal
+            visible={branchPickerOpen}
+            animationType="fade"
+            transparent
+            onRequestClose={() => setBranchPickerOpen(false)}
+          >
+            <TouchableOpacity
+              style={s.pickerOverlay}
+              activeOpacity={1}
+              onPress={() => setBranchPickerOpen(false)}
+            >
               <View style={s.pickerSheet}>
                 <TouchableOpacity
                   style={s.pickerRow}
-                  onPress={() => { setBranchFilter(null); setBranchPickerOpen(false); }}
+                  onPress={() => {
+                    setBranchFilter(null);
+                    setBranchPickerOpen(false);
+                  }}
                 >
-                  <Text style={[s.pickerRowText, branchFilter == null && s.pickerRowTextActive]}>{t("reports.allBranches")}</Text>
-                  {branchFilter == null && <Ionicons name="checkmark" size={16} color={C.accent} />}
+                  <Text
+                    style={[
+                      s.pickerRowText,
+                      branchFilter == null && s.pickerRowTextActive,
+                    ]}
+                  >
+                    {t("reports.allBranches")}
+                  </Text>
+                  {branchFilter == null && (
+                    <Ionicons name="checkmark" size={16} color={C.accent} />
+                  )}
                 </TouchableOpacity>
                 <ScrollView style={s.pickerScroll}>
-                  {branches.map(b => (
+                  {branches.map((b) => (
                     <TouchableOpacity
                       key={b.id}
                       style={s.pickerRow}
-                      onPress={() => { setBranchFilter(b.id); setBranchPickerOpen(false); }}
+                      onPress={() => {
+                        setBranchFilter(b.id);
+                        setBranchPickerOpen(false);
+                      }}
                     >
-                      <Text style={[s.pickerRowText, branchFilter === b.id && s.pickerRowTextActive]} numberOfLines={1}>
+                      <Text
+                        style={[
+                          s.pickerRowText,
+                          branchFilter === b.id && s.pickerRowTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
                         {b.name}
                       </Text>
-                      {branchFilter === b.id && <Ionicons name="checkmark" size={16} color={C.accent} />}
+                      {branchFilter === b.id && (
+                        <Ionicons name="checkmark" size={16} color={C.accent} />
+                      )}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -229,12 +407,16 @@ export default function SyncOverviewScreen() {
             <ActivityIndicator color={C.accent} style={{ marginTop: 40 }} />
           ) : tab === "sales" ? (
             <ScrollView contentContainerStyle={s.scroll}>
-              {filteredSales.length === 0 && <Text style={s.emptyText}>{t("syncOverview.noSales")}</Text>}
-              {visibleSales.map(sale => (
+              {filteredSales.length === 0 && (
+                <Text style={s.emptyText}>{t("syncOverview.noSales")}</Text>
+              )}
+              {visibleSales.map((sale) => (
                 <View key={sale.id} style={s.card}>
                   <View style={s.cardHeaderRow}>
                     <Text style={s.branchTag}>{sale.branchName ?? "—"}</Text>
-                    <Text style={s.dateText}>{new Date(sale.createdAt).toLocaleString()}</Text>
+                    <Text style={s.dateText}>
+                      {new Date(sale.createdAt).toLocaleString()}
+                    </Text>
                   </View>
                   {sale.items.map((item, idx) => (
                     <Text key={idx} style={s.itemLine} numberOfLines={1}>
@@ -243,39 +425,66 @@ export default function SyncOverviewScreen() {
                   ))}
                   <View style={s.cardFooterRow}>
                     <Text style={s.metaText}>
-                      {sale.paymentMethod}{sale.cashierName ? ` · ${sale.cashierName}` : ""}
+                      {sale.paymentMethod}
+                      {sale.cashierName ? ` · ${sale.cashierName}` : ""}
                     </Text>
-                    <Text style={s.totalText}>${sale.total.toLocaleString()}</Text>
+                    <Text style={s.totalText}>
+                      ${sale.total.toLocaleString()}
+                    </Text>
                   </View>
                 </View>
               ))}
               {activeTotal > visibleCount && (
-                <TouchableOpacity style={s.loadMoreBtn} onPress={() => setVisibleCount(c => c + PAGE_SIZE)}>
-                  <Text style={s.loadMoreBtnText}>{t("common.loadMore")} ({activeTotal - visibleCount})</Text>
+                <TouchableOpacity
+                  style={s.loadMoreBtn}
+                  onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                >
+                  <Text style={s.loadMoreBtnText}>
+                    {t("common.loadMore")} ({activeTotal - visibleCount})
+                  </Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
           ) : tab === "movements" ? (
             <ScrollView contentContainerStyle={s.scroll}>
-              {filteredMovements.length === 0 && <Text style={s.emptyText}>{t("syncOverview.noMovements")}</Text>}
-              {visibleMovements.map(m => (
+              {filteredMovements.length === 0 && (
+                <Text style={s.emptyText}>{t("syncOverview.noMovements")}</Text>
+              )}
+              {visibleMovements.map((m) => (
                 <View key={m.id} style={s.card}>
                   <View style={s.cardHeaderRow}>
                     <Text style={s.branchTag}>{m.branchName ?? "—"}</Text>
-                    <Text style={s.dateText}>{new Date(m.createdAt).toLocaleString()}</Text>
+                    <Text style={s.dateText}>
+                      {new Date(m.createdAt).toLocaleString()}
+                    </Text>
                   </View>
-                  <Text style={s.itemLine} numberOfLines={1}>{m.productName}</Text>
+                  <Text style={s.itemLine} numberOfLines={1}>
+                    {m.productName}
+                  </Text>
                   <View style={s.cardFooterRow}>
-                    <Text style={s.metaText}>{m.reason}{m.actorName ? ` · ${m.actorName}` : ""}</Text>
-                    <Text style={[s.totalText, m.changeQty < 0 ? s.negative : s.positive]}>
+                    <Text style={s.metaText}>
+                      {m.reason}
+                      {m.actorName ? ` · ${m.actorName}` : ""}
+                    </Text>
+                    <Text
+                      style={[
+                        s.totalText,
+                        m.changeQty < 0 ? s.negative : s.positive,
+                      ]}
+                    >
                       {m.changeQty > 0 ? `+${m.changeQty}` : m.changeQty}
                     </Text>
                   </View>
                 </View>
               ))}
               {activeTotal > visibleCount && (
-                <TouchableOpacity style={s.loadMoreBtn} onPress={() => setVisibleCount(c => c + PAGE_SIZE)}>
-                  <Text style={s.loadMoreBtnText}>{t("common.loadMore")} ({activeTotal - visibleCount})</Text>
+                <TouchableOpacity
+                  style={s.loadMoreBtn}
+                  onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                >
+                  <Text style={s.loadMoreBtnText}>
+                    {t("common.loadMore")} ({activeTotal - visibleCount})
+                  </Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
@@ -284,48 +493,82 @@ export default function SyncOverviewScreen() {
               {filteredProductRows.length === 0 && (
                 <Text style={s.emptyText}>{t("syncOverview.noProducts")}</Text>
               )}
-              {visibleProductRows.map(p => (
+              {visibleProductRows.map((p) => (
                 <View key={p.id} style={s.card}>
                   <View style={s.cardHeaderRow}>
-                    <Text style={[s.itemLine, { flex: 1, marginRight: 8 }]} numberOfLines={1}>{p.name}</Text>
-                    <Text style={s.totalText}>${p.price.toLocaleString()} / {p.unit}</Text>
+                    <Text
+                      style={[s.itemLine, { flex: 1, marginRight: 8 }]}
+                      numberOfLines={1}
+                    >
+                      {p.name}
+                    </Text>
+                    <Text style={s.totalText}>
+                      ${p.price.toLocaleString()} / {p.unit}
+                    </Text>
                   </View>
                   <Text style={s.metaText}>{p.categoryName}</Text>
                   <View style={s.branchStockGrid}>
-                    {p.branchStocks.map(bs => (
+                    {p.branchStocks.map((bs) => (
                       <View key={bs.branchId} style={s.branchStockChip}>
-                        <Text style={s.branchStockName} numberOfLines={1}>{bs.branchName}</Text>
-                        <Text style={[s.branchStockQty, bs.stockQty <= 0 && s.negative]}>{bs.stockQty}</Text>
+                        <Text style={s.branchStockName} numberOfLines={1}>
+                          {bs.branchName}
+                        </Text>
+                        <Text
+                          style={[
+                            s.branchStockQty,
+                            bs.stockQty <= 0 && s.negative,
+                          ]}
+                        >
+                          {bs.stockQty}
+                        </Text>
                       </View>
                     ))}
                   </View>
                 </View>
               ))}
               {activeTotal > visibleCount && (
-                <TouchableOpacity style={s.loadMoreBtn} onPress={() => setVisibleCount(c => c + PAGE_SIZE)}>
-                  <Text style={s.loadMoreBtnText}>{t("common.loadMore")} ({activeTotal - visibleCount})</Text>
+                <TouchableOpacity
+                  style={s.loadMoreBtn}
+                  onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                >
+                  <Text style={s.loadMoreBtnText}>
+                    {t("common.loadMore")} ({activeTotal - visibleCount})
+                  </Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
           ) : (
             <ScrollView contentContainerStyle={s.scroll}>
-              {filteredExpenses.length === 0 && <Text style={s.emptyText}>{t("expenses.empty")}</Text>}
-              {visibleExpenses.map(e => (
+              {filteredExpenses.length === 0 && (
+                <Text style={s.emptyText}>{t("expenses.empty")}</Text>
+              )}
+              {visibleExpenses.map((e) => (
                 <View key={e.id} style={s.card}>
                   <View style={s.cardHeaderRow}>
                     <Text style={s.branchTag}>{e.branchName ?? "—"}</Text>
-                    <Text style={s.dateText}>{new Date(e.createdAt).toLocaleString()}</Text>
+                    <Text style={s.dateText}>
+                      {new Date(e.createdAt).toLocaleString()}
+                    </Text>
                   </View>
-                  <Text style={s.itemLine} numberOfLines={1}>{e.category}</Text>
+                  <Text style={s.itemLine} numberOfLines={1}>
+                    {e.category}
+                  </Text>
                   <View style={s.cardFooterRow}>
                     <Text style={s.metaText}>{e.actorName ?? ""}</Text>
-                    <Text style={s.totalText}>${e.amount.toLocaleString()}</Text>
+                    <Text style={s.totalText}>
+                      ${e.amount.toLocaleString()}
+                    </Text>
                   </View>
                 </View>
               ))}
               {activeTotal > visibleCount && (
-                <TouchableOpacity style={s.loadMoreBtn} onPress={() => setVisibleCount(c => c + PAGE_SIZE)}>
-                  <Text style={s.loadMoreBtnText}>{t("common.loadMore")} ({activeTotal - visibleCount})</Text>
+                <TouchableOpacity
+                  style={s.loadMoreBtn}
+                  onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                >
+                  <Text style={s.loadMoreBtnText}>
+                    {t("common.loadMore")} ({activeTotal - visibleCount})
+                  </Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
@@ -336,68 +579,210 @@ export default function SyncOverviewScreen() {
   );
 }
 
-const makeStyles = (C: ThemeColors, isTablet: boolean) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
+const makeStyles = (C: ThemeColors, isTablet: boolean) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: C.bg },
 
-  header:  { flexDirection: "row", alignItems: "center", gap: 8, padding: 16, paddingBottom: 8, paddingTop: ANDROID_STATUS_BAR + (isTablet ? 6 : 10) },
-  backBtn: { width: 34, height: 34, borderRadius: R.md, backgroundColor: C.card,
-             alignItems: "center", justifyContent: "center",
-             borderWidth: 1, borderColor: C.border },
-  title:   { fontSize: F.lg, fontWeight: "700", color: C.text, flex: 1 },
-  refreshBtn: { width: 32, height: 32, borderRadius: R.md, backgroundColor: C.card,
-                alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.border },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      padding: 16,
+      paddingBottom: 8,
+      paddingTop: ANDROID_STATUS_BAR + (isTablet ? 6 : 10),
+    },
+    backBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: R.md,
+      backgroundColor: C.card,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: C.border,
+    },
+    title: { fontSize: F.lg, fontWeight: "700", color: C.text, flex: 1 },
+    refreshBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: R.md,
+      backgroundColor: C.card,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: C.border,
+    },
 
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 24 },
-  centerText: { color: C.muted, fontSize: F.sm, textAlign: "center", lineHeight: 20 },
+    center: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      padding: 24,
+    },
+    centerText: {
+      color: C.muted,
+      fontSize: F.sm,
+      textAlign: "center",
+      lineHeight: 20,
+    },
 
-  selectorRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, marginTop: 6, marginBottom: 4 },
-  selectorBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6,
-                 backgroundColor: C.card, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 9,
-                 borderWidth: 1, borderColor: C.border },
-  selectorBtnText: { color: C.text, fontSize: F.sm, fontWeight: "700", flexShrink: 1 },
+    selectorRow: {
+      flexDirection: "row",
+      gap: 8,
+      paddingHorizontal: 16,
+      marginTop: 6,
+      marginBottom: 4,
+    },
+    selectorBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 6,
+      backgroundColor: C.card,
+      borderRadius: R.md,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      borderWidth: 1,
+      borderColor: C.border,
+    },
+    selectorBtnText: {
+      color: C.text,
+      fontSize: F.sm,
+      fontWeight: "700",
+      flexShrink: 1,
+    },
 
-  pickerOverlay: { flex: 1, backgroundColor: C.overlay, justifyContent: "center", alignItems: "center", padding: 24 },
-  pickerSheet: { backgroundColor: C.surface, borderRadius: R.lg, width: "100%", maxWidth: 360,
-                 maxHeight: "70%", paddingVertical: 6, borderWidth: 1, borderColor: C.border, ...Shadow.lg },
-  pickerScroll: { maxHeight: 320 },
-  pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-               paddingHorizontal: 16, paddingVertical: 13,
-               borderBottomWidth: 1, borderBottomColor: C.border },
-  pickerRowText: { color: C.text, fontSize: F.md, fontWeight: "600", flexShrink: 1, marginRight: 8 },
-  pickerRowTextActive: { color: C.accent, fontWeight: "800" },
+    pickerOverlay: {
+      flex: 1,
+      backgroundColor: C.overlay,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 24,
+    },
+    pickerSheet: {
+      backgroundColor: C.surface,
+      borderRadius: R.lg,
+      width: "100%",
+      maxWidth: 360,
+      maxHeight: "70%",
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: C.border,
+      ...Shadow.lg,
+    },
+    pickerScroll: { maxHeight: 320 },
+    pickerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+      borderBottomWidth: 1,
+      borderBottomColor: C.border,
+    },
+    pickerRowText: {
+      color: C.text,
+      fontSize: F.md,
+      fontWeight: "600",
+      flexShrink: 1,
+      marginRight: 8,
+    },
+    pickerRowTextActive: { color: C.accent, fontWeight: "800" },
 
-  searchRow: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    marginHorizontal: 16, marginTop: 4, marginBottom: 8,
-    backgroundColor: C.card, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 9,
-    borderWidth: 1, borderColor: C.border,
-  },
-  searchInput: { flex: 1, color: C.text, fontSize: F.md, padding: 0 },
+    searchRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginHorizontal: 16,
+      marginTop: 4,
+      marginBottom: 8,
+      backgroundColor: C.card,
+      borderRadius: R.md,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      borderWidth: 1,
+      borderColor: C.border,
+    },
+    searchInput: { flex: 1, color: C.text, fontSize: F.md, padding: 0 },
 
-  scroll: { padding: 16, gap: 10 },
-  emptyText: { color: C.muted, textAlign: "center", marginTop: 40, fontSize: F.sm },
+    scroll: { padding: 16, gap: 10 },
+    emptyText: {
+      color: C.muted,
+      textAlign: "center",
+      marginTop: 40,
+      fontSize: F.sm,
+    },
 
-  loadMoreBtn: { marginTop: 4, paddingVertical: 12, borderRadius: R.md, backgroundColor: C.card,
-                 alignItems: "center", borderWidth: 1, borderColor: C.border },
-  loadMoreBtnText: { color: C.text, fontSize: F.sm, fontWeight: "700" },
+    loadMoreBtn: {
+      marginTop: 4,
+      paddingVertical: 12,
+      borderRadius: R.md,
+      backgroundColor: C.card,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: C.border,
+    },
+    loadMoreBtnText: { color: C.text, fontSize: F.sm, fontWeight: "700" },
 
-  card: { backgroundColor: C.surface, borderRadius: R.lg, padding: 14,
-          borderWidth: 1, borderColor: C.border, ...Shadow.sm },
-  cardHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
-  branchTag: { color: C.accent, fontSize: F.xs, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
-  dateText: { color: C.muted, fontSize: F.xs },
-  itemLine: { color: C.text, fontSize: F.sm, marginTop: 2 },
-  cardFooterRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
-  metaText: { color: C.muted, fontSize: F.xs, flexShrink: 1 },
-  totalText: { color: C.text, fontSize: F.sm, fontWeight: "800" },
-  positive: { color: C.success },
-  negative: { color: C.danger },
+    card: {
+      backgroundColor: C.surface,
+      borderRadius: R.lg,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: C.border,
+      ...Shadow.sm,
+    },
+    cardHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 6,
+    },
+    branchTag: {
+      color: C.accent,
+      fontSize: F.xs,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    dateText: { color: C.muted, fontSize: F.xs },
+    itemLine: { color: C.text, fontSize: F.sm, marginTop: 2 },
+    cardFooterRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: 8,
+    },
+    metaText: { color: C.muted, fontSize: F.xs, flexShrink: 1 },
+    totalText: { color: C.text, fontSize: F.sm, fontWeight: "800" },
+    positive: { color: C.success },
+    negative: { color: C.danger },
 
-  branchStockGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  branchStockChip: { flexDirection: "row", alignItems: "center", gap: 6,
-                      backgroundColor: C.card, borderRadius: R.full,
-                      paddingHorizontal: 10, paddingVertical: 5,
-                      borderWidth: 1, borderColor: C.border, maxWidth: "100%" },
-  branchStockName: { color: C.muted, fontSize: F.xs, fontWeight: "600", flexShrink: 1 },
-  branchStockQty:  { color: C.text, fontSize: F.xs, fontWeight: "800" },
-});
+    branchStockGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      marginTop: 8,
+    },
+    branchStockChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: C.card,
+      borderRadius: R.full,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderWidth: 1,
+      borderColor: C.border,
+      maxWidth: "100%",
+    },
+    branchStockName: {
+      color: C.muted,
+      fontSize: F.xs,
+      fontWeight: "600",
+      flexShrink: 1,
+    },
+    branchStockQty: { color: C.text, fontSize: F.xs, fontWeight: "800" },
+  });
