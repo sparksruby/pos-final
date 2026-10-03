@@ -170,6 +170,17 @@ export default function ProductsManageScreen() {
       [categoryId]: visibleCountFor(categoryId) + PRODUCTS_PAGE_SIZE,
     }));
 
+  // ── Collapsible category cards ───────────────────────────────────────────
+  // Cards start collapsed so the whole category list fits on screen without
+  // scrolling past hundreds of product rows. While a search is active every
+  // matching category is shown open, since the point of searching is to see
+  // the matches.
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const isExpanded = (categoryId: number) =>
+    searchQuery.length > 0 || !!expanded[categoryId];
+  const toggleExpanded = (categoryId: number) =>
+    setExpanded((prev) => ({ ...prev, [categoryId]: !prev[categoryId] }));
+
   // ── Category form (create / rename) ──────────────────────────────────────
   const [catForm, setCatForm] = useState<CategoryFormState | null>(null);
   const [catSubmitting, setCatSubmitting] = useState(false);
@@ -223,11 +234,27 @@ export default function ProductsManageScreen() {
   const [itemForm, setItemForm] = useState<ProductFormState | null>(null);
   const [itemSubmitting, setItemSubmitting] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  // The category the last product was saved into — becomes the default for
+  // the next "Add Product" so adding many products in a row doesn't mean
+  // re-picking the category every time.
+  const [lastCategoryId, setLastCategoryId] = useState<number | null>(null);
 
-  const openCreateItem = (categoryId: number) => {
+  // `categoryId` is optional: the per-category "+ Add Product" button passes
+  // its own category; the header button passes nothing and the category is
+  // picked at the top of the form instead.
+  const openCreateItem = (categoryId?: number) => {
+    const initial =
+      categoryId ??
+      (lastCategoryId != null && categories.some((c) => c.id === lastCategoryId)
+        ? lastCategoryId
+        : categories[0]?.id);
+    if (initial == null) {
+      alert(t("common.error"), t("products.noCategories"));
+      return;
+    }
     setItemForm({
       mode: "create",
-      categoryId,
+      categoryId: initial,
       name: "",
       sku: "",
       barcode: "",
@@ -326,6 +353,10 @@ export default function ProductsManageScreen() {
           },
           user?.name,
         );
+        // Remember the category for next time, and open its card so the
+        // product that was just added is visible.
+        setLastCategoryId(itemForm.categoryId);
+        setExpanded((prev) => ({ ...prev, [itemForm.categoryId]: true }));
       } else if (itemForm.productId) {
         const original = categories
           .find((c) => c.id === itemForm.categoryId)
@@ -436,7 +467,11 @@ export default function ProductsManageScreen() {
 
   const submitPrintLabel = async () => {
     if (!labelForm) return;
-    const qty = Math.max(1, Math.min(100, Number(labelForm.qty) || 1));
+    const MAX_LABEL_QTY = 1000;
+    const qty = Math.max(
+      1,
+      Math.min(MAX_LABEL_QTY, Number(labelForm.qty) || 1),
+    );
     setLabelPrinting(true);
     try {
       await labelPrinterRef.current?.print({
@@ -479,16 +514,39 @@ export default function ProductsManageScreen() {
         </TouchableOpacity>
         <Ionicons name="cube-outline" size={17} color={C.text} />
         <View style={{ flex: 1 }}>
-          <Text style={s.title}>{t("products.title")}</Text>
+          <Text style={s.title} numberOfLines={1}>
+            {t("products.title")}
+          </Text>
           {!!currentBranch && branches.length > 1 && (
-            <Text style={s.branchSubtitle}>{currentBranch.name}</Text>
+            <Text style={s.branchSubtitle} numberOfLines={1}>
+              {currentBranch.name}
+            </Text>
           )}
         </View>
         {canEdit && (
-          <TouchableOpacity style={s.addBtn} onPress={openCreateCategory}>
-            <Ionicons name="add" size={16} color={C.accentFg} />
-            <Text style={s.addBtnText}>{t("products.newCategory")}</Text>
-          </TouchableOpacity>
+          <>
+            {/* Add Product lives in the header too, so it is one tap from
+                anywhere on the screen — no scrolling down to the right
+                category card first. The category is picked inside the form. */}
+            <TouchableOpacity style={s.addBtn} onPress={() => openCreateItem()}>
+              <Ionicons name="add" size={16} color={C.accentFg} />
+              <Text style={s.addBtnText}>{t("products.addProduct")}</Text>
+            </TouchableOpacity>
+            {/* Icon-only so the two header buttons fit on a narrow phone. */}
+            <TouchableOpacity
+              style={s.addCatBtn}
+              onPress={openCreateCategory}
+              accessibilityLabel={t("products.newCategory")}
+            >
+              <Ionicons name="folder-open-outline" size={17} color={C.text} />
+              <Ionicons
+                name="add"
+                size={11}
+                color={C.text}
+                style={s.addCatBtnPlus}
+              />
+            </TouchableOpacity>
+          </>
         )}
       </View>
 
@@ -516,165 +574,188 @@ export default function ProductsManageScreen() {
             <Text style={s.emptyText}>{t("products.noSearchResults")}</Text>
           )}
 
-          {visibleCategories.map((cat) => (
-            <View key={cat.id} style={s.catCard}>
-              <View style={s.catHeader}>
-                {canEdit ? (
+          {visibleCategories.map((cat) => {
+            const open = isExpanded(cat.id);
+            return (
+              <View key={cat.id} style={s.catCard}>
+                <View style={[s.catHeader, open && s.catHeaderOpen]}>
+                  {/* Tapping the name area folds / unfolds the card. */}
                   <TouchableOpacity
-                    style={s.catNameRow}
-                    onPress={() => openEditCategory(cat)}
+                    style={s.catToggle}
+                    onPress={() => toggleExpanded(cat.id)}
+                    activeOpacity={0.7}
                   >
+                    <Ionicons
+                      name={open ? "chevron-down" : "chevron-forward"}
+                      size={16}
+                      color={C.muted}
+                    />
                     <Text style={s.catName} numberOfLines={1}>
                       {cat.name}
                     </Text>
-                    <Ionicons name="pencil-outline" size={13} color={C.muted} />
+                    <View style={s.catCountBadge}>
+                      <Text style={s.catCountText}>{cat.products.length}</Text>
+                    </View>
                   </TouchableOpacity>
-                ) : (
-                  <View style={s.catNameRow}>
-                    <Text style={s.catName} numberOfLines={1}>
-                      {cat.name}
-                    </Text>
-                  </View>
-                )}
-                {canEdit && (
-                  <View style={s.catHeaderActions}>
-                    <TouchableOpacity
-                      style={s.addItemBtn}
-                      onPress={() => openCreateItem(cat.id)}
-                    >
-                      <Ionicons name="add" size={13} color={C.muted} />
-                      <Text style={s.addItemBtnText}>
-                        {t("products.addProduct")}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={s.catDeleteBtn}
-                      onPress={() => deleteCategory(cat)}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={15}
-                        color={C.danger}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              {cat.products.length === 0 ? (
-                <Text style={s.noItemsText}>{t("products.noItems")}</Text>
-              ) : (
-                cat.products.slice(0, visibleCountFor(cat.id)).map((item) => (
-                  <View
-                    key={item.id}
-                    style={[s.itemRow, !item.isActive && { opacity: 0.5 }]}
-                  >
-                    {item.imageUri ? (
-                      <Image
-                        source={{ uri: item.imageUri }}
-                        style={s.itemThumb}
-                      />
-                    ) : (
-                      <View style={s.itemThumbPlaceholder}>
+                  {canEdit && (
+                    <View style={s.catHeaderActions}>
+                      {/* Rename moved out of the name area (which now
+                          toggles) into its own small button. */}
+                      <TouchableOpacity
+                        style={s.catIconBtn}
+                        onPress={() => openEditCategory(cat)}
+                      >
                         <Ionicons
-                          name="cube-outline"
-                          size={16}
+                          name="pencil-outline"
+                          size={14}
                           color={C.muted}
                         />
-                      </View>
-                    )}
-                    <TouchableOpacity
-                      style={{ flex: 1 }}
-                      onPress={() => canEdit && openEditItem(item)}
-                      disabled={!canEdit}
-                    >
-                      <Text style={s.itemName}>{item.name}</Text>
-                      <Text style={s.itemPrice}>
-                        ${item.price.toLocaleString()} / {item.unit}
-                        {item.wholesalePrice != null
-                          ? ` · ${t("products.wholesalePrice")}: $${item.wholesalePrice.toLocaleString()}`
-                          : ""}
-                        {" · "}
-                        {t("products.stock")}: {item.stockQty}
-                      </Text>
-                      {/* The code is on the list, not only inside the edit
-                        form. A shopkeeper who has just turned on automatic
-                        numbering has no way to tell it worked otherwise, and
-                        the barcode is what they check against the label they
-                        are about to stick on. */}
-                      {(item.barcode || item.sku) && (
-                        <Text style={s.itemCode}>
-                          {item.barcode ?? ""}
-                          {item.barcode && item.sku ? "  ·  " : ""}
-                          {item.sku ?? ""}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={s.addItemBtn}
+                        onPress={() => openCreateItem(cat.id)}
+                      >
+                        <Ionicons name="add" size={13} color={C.muted} />
+                        <Text style={s.addItemBtnText}>
+                          {t("products.addProduct")}
                         </Text>
-                      )}
-                      {item.stockQty <= 0 ? (
-                        <Text style={s.stockBadgeDanger}>
-                          {t("inventory.outOfStock")}
-                        </Text>
-                      ) : item.stockQty <= item.lowStockThreshold ? (
-                        <Text style={s.stockBadgeWarning}>
-                          {t("inventory.lowStock")}
-                        </Text>
-                      ) : null}
-                      {!!item.expiryDate && item.expiryDate < todayStr ? (
-                        <Text style={s.stockBadgeDanger}>
-                          {t("alerts.expired")}
-                        </Text>
-                      ) : !!item.expiryDate &&
-                        item.expiryDate <= expiringSoonStr ? (
-                        <Text style={s.stockBadgeWarning}>
-                          {t("alerts.expiringSoon")}
-                        </Text>
-                      ) : null}
-                    </TouchableOpacity>
-                    {canEdit && (
-                      <>
-                        <Switch
-                          value={item.isActive}
-                          onValueChange={() => toggleAvailable(item)}
-                          trackColor={{ false: C.border, true: C.accent }}
-                          thumbColor="#fff"
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={s.catIconBtn}
+                        onPress={() => deleteCategory(cat)}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={15}
+                          color={C.danger}
                         />
-                        <TouchableOpacity
-                          style={s.deleteBtn}
-                          onPress={() => openPrintLabel(item)}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                {open &&
+                  (cat.products.length === 0 ? (
+                    <Text style={s.noItemsText}>{t("products.noItems")}</Text>
+                  ) : (
+                    cat.products
+                      .slice(0, visibleCountFor(cat.id))
+                      .map((item) => (
+                        <View
+                          key={item.id}
+                          style={[
+                            s.itemRow,
+                            !item.isActive && { opacity: 0.5 },
+                          ]}
                         >
-                          <Ionicons
-                            name="pricetag-outline"
-                            size={14}
-                            color={C.textSub}
-                          />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={s.deleteBtn}
-                          onPress={() => deleteItem(item)}
-                        >
-                          <Ionicons
-                            name="trash-outline"
-                            size={14}
-                            color={C.danger}
-                          />
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
-                ))
-              )}
-              {cat.products.length > visibleCountFor(cat.id) && (
-                <TouchableOpacity
-                  style={s.loadMoreBtn}
-                  onPress={() => showMoreFor(cat.id)}
-                >
-                  <Text style={s.loadMoreBtnText}>
-                    {t("common.loadMore")} (
-                    {cat.products.length - visibleCountFor(cat.id)})
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ))}
+                          {item.imageUri ? (
+                            <Image
+                              source={{ uri: item.imageUri }}
+                              style={s.itemThumb}
+                            />
+                          ) : (
+                            <View style={s.itemThumbPlaceholder}>
+                              <Ionicons
+                                name="cube-outline"
+                                size={16}
+                                color={C.muted}
+                              />
+                            </View>
+                          )}
+                          <TouchableOpacity
+                            style={{ flex: 1 }}
+                            onPress={() => canEdit && openEditItem(item)}
+                            disabled={!canEdit}
+                          >
+                            <Text style={s.itemName}>{item.name}</Text>
+                            <Text style={s.itemPrice}>
+                              ${item.price.toLocaleString()} / {item.unit}
+                              {item.wholesalePrice != null
+                                ? ` · ${t("products.wholesalePrice")}: $${item.wholesalePrice.toLocaleString()}`
+                                : ""}
+                              {" · "}
+                              {t("products.stock")}: {item.stockQty}
+                            </Text>
+                            {/* The code is on the list, not only inside the
+                              edit form. A shopkeeper who has just turned on
+                              automatic numbering has no way to tell it
+                              worked otherwise, and the barcode is what they
+                              check against the label they are about to
+                              stick on. */}
+                            {(item.barcode || item.sku) && (
+                              <Text style={s.itemCode}>
+                                {item.barcode ?? ""}
+                                {item.barcode && item.sku ? "  ·  " : ""}
+                                {item.sku ?? ""}
+                              </Text>
+                            )}
+                            {item.stockQty <= 0 ? (
+                              <Text style={s.stockBadgeDanger}>
+                                {t("inventory.outOfStock")}
+                              </Text>
+                            ) : item.stockQty <= item.lowStockThreshold ? (
+                              <Text style={s.stockBadgeWarning}>
+                                {t("inventory.lowStock")}
+                              </Text>
+                            ) : null}
+                            {!!item.expiryDate && item.expiryDate < todayStr ? (
+                              <Text style={s.stockBadgeDanger}>
+                                {t("alerts.expired")}
+                              </Text>
+                            ) : !!item.expiryDate &&
+                              item.expiryDate <= expiringSoonStr ? (
+                              <Text style={s.stockBadgeWarning}>
+                                {t("alerts.expiringSoon")}
+                              </Text>
+                            ) : null}
+                          </TouchableOpacity>
+                          {canEdit && (
+                            <>
+                              <Switch
+                                value={item.isActive}
+                                onValueChange={() => toggleAvailable(item)}
+                                trackColor={{ false: C.border, true: C.accent }}
+                                thumbColor="#fff"
+                              />
+                              <TouchableOpacity
+                                style={s.deleteBtn}
+                                onPress={() => openPrintLabel(item)}
+                              >
+                                <Ionicons
+                                  name="pricetag-outline"
+                                  size={14}
+                                  color={C.textSub}
+                                />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={s.deleteBtn}
+                                onPress={() => deleteItem(item)}
+                              >
+                                <Ionicons
+                                  name="trash-outline"
+                                  size={14}
+                                  color={C.danger}
+                                />
+                              </TouchableOpacity>
+                            </>
+                          )}
+                        </View>
+                      ))
+                  ))}
+                {open && cat.products.length > visibleCountFor(cat.id) && (
+                  <TouchableOpacity
+                    style={s.loadMoreBtn}
+                    onPress={() => showMoreFor(cat.id)}
+                  >
+                    <Text style={s.loadMoreBtnText}>
+                      {t("common.loadMore")} (
+                      {cat.products.length - visibleCountFor(cat.id)})
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
         </ScrollView>
       )}
 
@@ -742,6 +823,44 @@ export default function ProductsManageScreen() {
                   ? t("products.addProductTitle")
                   : t("products.editProductTitle")}
               </Text>
+
+              {/* Category picker — first thing in the form, so there is
+                  never any scrolling to find it. Create mode only: the
+                  update path does not move a product between categories. */}
+              {itemForm.mode === "create" && (
+                <>
+                  <Text style={s.label}>{t("products.category")}</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={s.catChipsRow}
+                  >
+                    {categories.map((c) => (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[
+                          s.unitChip,
+                          itemForm.categoryId === c.id && s.unitChipActive,
+                        ]}
+                        onPress={() =>
+                          setItemForm((f) => f && { ...f, categoryId: c.id })
+                        }
+                      >
+                        <Text
+                          style={[
+                            s.unitChipText,
+                            itemForm.categoryId === c.id &&
+                              s.unitChipTextActive,
+                          ]}
+                        >
+                          {c.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </>
+              )}
 
               <Text style={s.label}>{t("products.image")}</Text>
               <View style={s.photoRow}>
@@ -1135,6 +1254,17 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
       borderRadius: R.md,
     },
     addBtnText: { color: C.accentFg, fontSize: F.xs, fontWeight: "800" },
+    addCatBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: R.md,
+      backgroundColor: C.card,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: C.border,
+    },
+    addCatBtnPlus: { position: "absolute", right: 4, bottom: 4 },
 
     searchRow: {
       flexDirection: "row",
@@ -1172,14 +1302,17 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 8,
       gap: 8,
     },
-    catNameRow: {
+    // Only open cards need the gap between the header and the first row.
+    catHeaderOpen: { marginBottom: 8 },
+    catToggle: {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
       flexShrink: 1,
+      flex: 1,
+      paddingVertical: 4,
     },
     catName: {
       color: C.text,
@@ -1187,6 +1320,17 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
       fontWeight: "800",
       flexShrink: 1,
     },
+    catCountBadge: {
+      minWidth: 22,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: R.full,
+      backgroundColor: C.card,
+      borderWidth: 1,
+      borderColor: C.border,
+      alignItems: "center",
+    },
+    catCountText: { color: C.muted, fontSize: F.xs, fontWeight: "700" },
     catHeaderActions: { flexDirection: "row", alignItems: "center", gap: 6 },
     addItemBtn: {
       flexDirection: "row",
@@ -1200,7 +1344,7 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
       borderColor: C.border,
     },
     addItemBtnText: { color: C.muted, fontSize: F.xs, fontWeight: "700" },
-    catDeleteBtn: {
+    catIconBtn: {
       width: 30,
       height: 30,
       borderRadius: R.md,
@@ -1312,6 +1456,8 @@ const makeStyles = (C: ThemeColors, isTablet: boolean) =>
     labelNoBarcodeHint: { color: C.warning, fontSize: F.xs, marginTop: 6 },
 
     row2: { flexDirection: "row", gap: 12 },
+
+    catChipsRow: { gap: 6, paddingBottom: 14 },
 
     unitChipsRow: {
       flexDirection: "row",

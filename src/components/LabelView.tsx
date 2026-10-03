@@ -124,7 +124,8 @@ const s = StyleSheet.create({
   barcode: { flexDirection: "row", justifyContent: "center", marginTop: 6 },
   barcodeNumber: {
     color: "#000",
-    fontSize: 11,
+    fontSize: 13,
+    fontWeight: "900",
     textAlign: "center",
     marginTop: 2,
     letterSpacing: 1,

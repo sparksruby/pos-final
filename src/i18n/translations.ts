@@ -115,6 +115,7 @@ export const translations = {
 
     "products.title": "Products",
     "products.newCategory": "New Category",
+    "products.category": "Category",
     "products.noCategories": "No categories yet",
     "products.searchPlaceholder": "Search products…",
     "products.noSearchResults": "No products match your search",
@@ -832,6 +833,7 @@ export const translations = {
 
     "products.title": "ကုန်ပစ္စည်းများ",
     "products.newCategory": "အမျိုးအစားအသစ်",
+    "products.category": "အမျိုးအစား",
     "products.noCategories": "အမျိုးအစား မရှိသေးပါ",
     "products.searchPlaceholder": "ကုန်ပစ္စည်း ရှာရန်…",
     "products.noSearchResults": "ရှာဖွေမှုနှင့် ကိုက်ညီသော ကုန်ပစ္စည်း မရှိပါ",
